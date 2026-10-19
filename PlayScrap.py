@@ -4,9 +4,13 @@ import json
 import os
 import random
 import re
+import sys
 import time as time_module
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 # ─────────────────────────────────────────────────────────
 # Configuración
@@ -232,158 +236,128 @@ async def recolectar_urls_posts(page, meta_posts=0):
 # Extracción de comentarios dentro de un post
 # ─────────────────────────────────────────────────────────
 async def extraer_comentarios_post(page):
-    """Expande y extrae todos los comentarios del post actual."""
-
+    """Expande y extrae los comentarios del post actual."""
     # 1. Intentar abrir la vista completa de comentarios
     for selector in [
         "span:has-text('Ver todos')",
         "span:has-text('View all')",
         "span:has-text('Ver los')",
         "a:has-text('View all')",
+        "a:has-text('Ver los')",
         "a:has-text('Ver todos')",
     ]:
         try:
             el = page.locator(selector).first
-            if await el.is_visible(timeout=2000):
+            if await el.is_visible(timeout=1500):
                 await el.click()
-                await pausa_humana(page, 2.0, 3.0)
+                await pausa_humana(page, 1.5, 2.5)
                 break
         except Exception:
             pass
 
-    # 2. Scroll iterativo + expansión de respuestas
-    prev_count = 0
-    intentos = 0
-    MAX_INTENTOS_SCROLL = 3
-
-    for _ in range(40):
-        # Botones "Cargar más comentarios"
+    # 2. Desplazar e intentar expandir respuestas
+    for _ in range(3):
         for sel in [
             "button:has-text('más comentarios')",
             "button:has-text('more comments')",
-        ]:
-            try:
-                btns = page.locator(sel)
-                for i in range(await btns.count()):
-                    try:
-                        b = btns.nth(i)
-                        if await b.is_visible(timeout=500):
-                            await b.click()
-                            await pausa_humana(page, 1.0, 2.0)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
-        # Botones "Ver respuestas"
-        for sel in [
             "button:has-text('Ver respuestas')",
             "button:has-text('View replies')",
-            "button:has-text('Ver más respuestas')",
-            "button:has-text('View more replies')",
         ]:
             try:
                 btns = page.locator(sel)
                 cnt = await btns.count()
-                for i in range(min(cnt, 5)):
+                for i in range(min(cnt, 3)):
                     try:
                         b = btns.nth(i)
                         if await b.is_visible(timeout=500):
                             await b.click()
-                            await pausa_humana(page, 0.8, 1.5)
+                            await page.wait_for_timeout(800)
                     except Exception:
                         pass
             except Exception:
                 pass
 
-        # Scroll del contenedor de comentarios
-        await page.evaluate(
-            r"""() => {
-            const article = document.querySelector('article');
-            if (!article) return;
-            const scrollables = Array.from(article.querySelectorAll('ul, div')).filter(
+        await page.evaluate(r"""() => {
+            const container = document.querySelector('article') || document.querySelector('main') || document.body;
+            const scrollables = Array.from(container.querySelectorAll('ul, div')).filter(
                 el => el.scrollHeight > el.clientHeight + 50 && el.clientHeight > 80
             );
             for (const el of scrollables) {
                 el.scrollTop = el.scrollHeight;
                 el.dispatchEvent(new Event('scroll', { bubbles: true }));
             }
-        }"""
-        )
+        }""")
+        await page.wait_for_timeout(1000)
 
-        await pausa_humana(page, 1.0, 1.8)
-
-        cur = await page.evaluate(
-            r"""() => {
-            const article = document.querySelector('article');
-            return article ? article.querySelectorAll('ul li a[href]').length : 0;
-        }"""
-        )
-
-        if cur > prev_count:
-            prev_count = cur
-            intentos = 0
-        else:
-            intentos += 1
-            if intentos >= MAX_INTENTOS_SCROLL:
-                break
-
-    # 3. Extracción final de comentarios
-    comentarios = await page.evaluate(
-        r"""(targetUser) => {
+    # 3. Extracción de comentarios
+    comentarios = await page.evaluate(r"""(targetUser) => {
         const results = [];
-        const seen = new Set();
-        const article = document.querySelector('article');
-        if (!article) return results;
+        const container = document.querySelector('article') || document.querySelector('main') || document.body;
+        if (!container) return results;
 
-        const items = article.querySelectorAll('ul li');
-        let isFirstByAuthor = true;
+        // Estrategia A: Filas con botones de Reply / Responder
+        const replyButtons = Array.from(container.querySelectorAll('button, span')).filter(
+            b => /^(Reply|Responder)$/i.test((b.innerText || '').trim())
+        );
 
-        for (const item of items) {
-            // Buscar enlace de usuario
-            const links = item.querySelectorAll('a[href]');
-            let username = '';
-            for (const link of links) {
-                const href = link.getAttribute('href');
-                if (href && /^\/[\w.]+\/?$/.test(href)) {
-                    username = href.replaceAll('/', '');
+        for (const rBtn of replyButtons) {
+            let parent = rBtn.parentElement;
+            let row = null;
+            for (let step = 0; step < 6; step++) {
+                if (!parent) break;
+                const links = parent.querySelectorAll('a[href]');
+                if (links.length >= 1) {
+                    row = parent;
                     break;
                 }
+                parent = parent.parentElement;
             }
-            if (!username) continue;
 
-            // Buscar texto del comentario en spans (omitir botones, timestamps)
-            const spans = item.querySelectorAll('span');
-            let text = '';
-            for (const span of spans) {
-                if (span.closest('button, time, nav')) continue;
-                const t = span.textContent.trim();
-                if (t && t !== username && t.length > 2
-                    && !/^\d+[smhdw]?$/.test(t)
-                    && !/^(Responder|Reply|Me gusta|Like|Editado|Edited|Ver|View|Ocultar)$/i.test(t)
-                    && !t.includes('Ver respuestas')
-                    && !t.includes('View replies')) {
-                    if (t.length > text.length) text = t;
+            if (row) {
+                const link = row.querySelector('a[href]');
+                const u = link ? link.getAttribute('href').replaceAll('/', '').trim() : '';
+                const spans = Array.from(row.querySelectorAll('span')).map(s => (s.innerText || '').trim()).filter(Boolean);
+                let commentText = '';
+                for (const s of spans) {
+                    if (s !== u && !/^(Reply|Responder|\d+[smhdw]|See translation|Ver traducción|Editado|Edited)$/i.test(s) && s.length > commentText.length) {
+                        commentText = s;
+                    }
+                }
+                if (u && commentText && u.toLowerCase() !== targetUser.toLowerCase()) {
+                    if (!results.some(c => c.usuario === u && c.texto === commentText)) {
+                        results.push({ usuario: u, texto: commentText });
+                    }
                 }
             }
-            if (!text) continue;
+        }
 
-            // Omitir el primer bloque del autor (es el caption, no un comentario)
-            if (isFirstByAuthor && username.toLowerCase() === targetUser.toLowerCase()) {
-                isFirstByAuthor = false;
-                continue;
-            }
+        // Estrategia B: Buscar en items <ul> <li>
+        if (results.length === 0) {
+            const items = container.querySelectorAll('ul li');
+            for (const item of items) {
+                const link = item.querySelector('a[href]');
+                if (!link) continue;
+                const href = link.getAttribute('href') || '';
+                const uname = href.replaceAll('/', '').trim();
+                if (!uname || uname.toLowerCase() === targetUser.toLowerCase()) continue;
 
-            const key = username + '::' + text.substring(0, 60);
-            if (!seen.has(key)) {
-                seen.add(key);
-                results.push({ usuario: username, texto: text });
+                const spans = item.querySelectorAll('span');
+                let text = '';
+                for (const span of spans) {
+                    if (span.closest('button, time, nav')) continue;
+                    const t = span.textContent.trim();
+                    if (t && t !== uname && t.length > 2 && !/^\d+[smhdw]?$/.test(t) && !/^(Responder|Reply|Me gusta|Like|Editado|Edited)$/i.test(t)) {
+                        if (t.length > text.length) text = t;
+                    }
+                }
+                if (text && !results.some(c => c.usuario === uname && c.texto === text)) {
+                    results.push({ usuario: uname, texto: text });
+                }
             }
         }
+
         return results;
-    }""",
-        TARGET_USER,
-    )
+    }""", TARGET_USER)
 
     return comentarios
 
@@ -398,72 +372,110 @@ async def extraer_detalle_post(page, post_path, indice, total):
 
     try:
         await page.goto(url, wait_until="domcontentloaded")
-        await page.wait_for_timeout(2500)
+        await page.wait_for_timeout(3000)
         await descartar_popups(page)
-        await page.wait_for_selector("article", timeout=10000)
+
+        # Esperar a que el contenido del post cargue (main, article o time)
+        try:
+            await page.wait_for_selector("main, article, time", timeout=8000)
+        except Exception:
+            pass
 
         # ── Caption y Likes ──
         datos = await page.evaluate(
             r"""(targetUser) => {
-            const article = document.querySelector('article');
-            if (!article) return { caption: '', likes: 0 };
+            const container = document.querySelector('article') || document.querySelector('main') || document.body;
+            const text = container.innerText || '';
 
-            // Caption: buscar en h1 primero
-            let caption = '';
-            const h1 = article.querySelector('h1');
-            if (h1 && h1.textContent.trim()) {
-                caption = h1.textContent.trim();
+            // 1. Likes
+            let likes = 0;
+            const likedByMatch = text.match(/(?:Liked by|Les gusta a)\s+([^\n]+)/i);
+            if (likedByMatch) {
+                const othersMatch = likedByMatch[1].match(/(\d+[\d.,]*)\s+(?:others|m[aá]s|personas)/i);
+                if (othersMatch) {
+                    likes = parseInt(othersMatch[1].replace(/[.,]/g, '')) + 1;
+                } else {
+                    likes = 1;
+                }
             }
-
-            // Fallback: buscar primer bloque del autor del post
-            if (!caption) {
-                const items = article.querySelectorAll('ul li, ul > div');
-                for (const item of items) {
-                    const link = item.querySelector('a[href]');
-                    if (!link) continue;
-                    const href = link.getAttribute('href');
-                    if (!href || !href.startsWith('/')) continue;
-                    const uname = href.replaceAll('/', '');
-                    if (uname.toLowerCase() === targetUser.toLowerCase()) {
-                        const spans = item.querySelectorAll('span');
-                        for (const span of spans) {
-                            const t = span.textContent.trim();
-                            if (t && t !== uname && t.length > caption.length) {
-                                caption = t;
-                            }
-                        }
-                        break;
-                    }
+            if (!likes) {
+                const directLikes = text.match(/(\d+[\d.,]*)\s+(?:likes|Me gusta)/i);
+                if (directLikes) {
+                    likes = parseInt(directLikes[1].replace(/[.,]/g, ''));
+                }
+            }
+            if (!likes) {
+                const numMatch = text.match(/\n(\d+)\n(?:[A-Z][a-z]+ \d{1,2}, \d{4}|\d{1,2} de [a-z]+ de \d{4})/i);
+                if (numMatch) {
+                    likes = parseInt(numMatch[1]);
                 }
             }
 
-            // Likes
-            let likes = 0;
-            const allText = article.innerText;
-            let match = allText.match(/([\d.,]+)\s*(?:likes?|Me gusta)/i);
-            if (match) {
-                likes = parseInt(match[1].replace(/[.,]/g, ''));
-            } else {
-                match = allText.match(/([\d.,]+)\s*(?:others|personas más)/i);
-                if (match) likes = parseInt(match[1].replace(/[.,]/g, ''));
+            // 2. Fecha
+            let fecha = '';
+            const timeEl = container.querySelector('time[datetime]');
+            if (timeEl) {
+                fecha = timeEl.getAttribute('datetime') || timeEl.innerText;
+            }
+            if (!fecha) {
+                const dateMatch = text.match(/(?:[A-Z][a-z]+ \d{1,2}, \d{4}|\d{1,2} de [a-z]+ de \d{4})/i);
+                if (dateMatch) fecha = dateMatch[0];
             }
 
-            return { caption, likes };
+            // 3. Caption
+            const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+            const profileLinks = Array.from(container.querySelectorAll('a[href]'))
+                .map(a => a.getAttribute('href'))
+                .filter(h => h && /^\/[a-zA-Z0-9_.]+\/?$/.test(h) && !h.startsWith('/p/') && !h.startsWith('/explore/'))
+                .map(h => h.replaceAll('/', '').trim().toLowerCase());
+
+            let caption = '';
+            let postAuthorIdx = -1;
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].toLowerCase() === targetUser.toLowerCase()) {
+                    for (let j = i + 1; j < lines.length; j++) {
+                        if (lines[j].toLowerCase() === targetUser.toLowerCase()) {
+                            postAuthorIdx = j;
+                            break;
+                        }
+                    }
+                    if (postAuthorIdx === -1) postAuthorIdx = i;
+                    break;
+                }
+            }
+
+            let currentIdx = postAuthorIdx + 1;
+            if (postAuthorIdx !== -1 && currentIdx < lines.length) {
+                while (currentIdx < lines.length && (/^\d+[smhdw]$/i.test(lines[currentIdx]) || lines[currentIdx] === '·' || lines[currentIdx] === '•' || lines[currentIdx] === '?')) {
+                    currentIdx++;
+                }
+
+                const captionLines = [];
+                while (currentIdx < lines.length) {
+                    const line = lines[currentIdx];
+                    if (/^(No comments yet|Aún no hay comentarios|View all \d+ comments|Ver los \d+ comentarios|Start the conversation|Inicia la conversación|Liked by|Les gusta a|\d+\s+likes|\d+\s+Me gusta|Reply|Responder|More posts from|Más publicaciones de)/i.test(line)) {
+                        break;
+                    }
+                    if (timeEl && (line === timeEl.innerText || line === fecha)) {
+                        break;
+                    }
+                    if (profileLinks.includes(line.toLowerCase()) && line.toLowerCase() !== targetUser.toLowerCase()) {
+                        break;
+                    }
+                    captionLines.push(line);
+                    currentIdx++;
+                }
+                caption = captionLines.join('\n');
+            }
+
+            return { caption, likes, fecha };
         }""",
             TARGET_USER,
         )
 
         caption = datos.get("caption", "")
         likes = datos.get("likes", 0)
-
-        # ── Fecha ──
-        fecha = ""
-        try:
-            time_els = page.locator("time[datetime]")
-            if await time_els.count() > 0:
-                fecha = await time_els.first.get_attribute("datetime") or ""
-        except Exception:
-            pass
+        fecha = datos.get("fecha", "")
 
         # ── Comentarios ──
         comentarios = await extraer_comentarios_post(page)
@@ -472,7 +484,7 @@ async def extraer_detalle_post(page, post_path, indice, total):
         hashtags = extraer_hashtags(caption)
         menciones = extraer_menciones(caption)
 
-        preview = caption[:70] + ("..." if len(caption) > 70 else "")
+        preview = caption[:70].replace("\n", " ") + ("..." if len(caption) > 70 else "")
         print(f"    Caption: {preview}")
         print(
             f"    ❤️ {likes} | 📅 {fecha[:10] if fecha else 'N/A'} | 💬 {len(comentarios)}"
