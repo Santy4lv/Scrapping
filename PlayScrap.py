@@ -445,23 +445,33 @@ async def extraer_detalle_post(page, post_path, indice, total):
             }
 
             let currentIdx = postAuthorIdx + 1;
+            const isRelativeTime = (str) => /^\d+\s*(?:sem|semanas?|d|d[ií]as?|h|horas?|min|m|s|seg|w|weeks?|y|a[ñn]os?)$/i.test(str);
+            const isSeparator = (str) => /^[·•?•\s]+$/.test(str);
+
             if (postAuthorIdx !== -1 && currentIdx < lines.length) {
-                while (currentIdx < lines.length && (/^\d+[smhdw]$/i.test(lines[currentIdx]) || lines[currentIdx] === '·' || lines[currentIdx] === '•' || lines[currentIdx] === '?')) {
+                while (currentIdx < lines.length && (isRelativeTime(lines[currentIdx]) || isSeparator(lines[currentIdx]) || lines[currentIdx] === targetUser)) {
                     currentIdx++;
                 }
 
                 const captionLines = [];
                 while (currentIdx < lines.length) {
                     const line = lines[currentIdx];
-                    if (/^(No comments yet|Aún no hay comentarios|View all \d+ comments|Ver los \d+ comentarios|Start the conversation|Inicia la conversación|Liked by|Les gusta a|\d+\s+likes|\d+\s+Me gusta|Reply|Responder|More posts from|Más publicaciones de)/i.test(line)) {
+
+                    // Detener si encontramos fin de caption o inicio de comentarios / footer
+                    if (/^(No comments yet|Todavía no hay comentarios|Aún no hay comentarios|View all|Ver los \d+|Ver todos|Start the conversation|Inicia la conversación|Inicia una conversación|Liked by|Les gusta a|\d+\s+likes|\d+\s+Me gusta|Reply|Responder|More posts from|Más publicaciones de)/i.test(line)) {
                         break;
                     }
-                    if (timeEl && (line === timeEl.innerText || line === fecha)) {
-                        break;
-                    }
+
+                    // Si es otro usuario que tiene link en la página (comentarista)
                     if (profileLinks.includes(line.toLowerCase()) && line.toLowerCase() !== targetUser.toLowerCase()) {
                         break;
                     }
+
+                    // Si es la fecha del post (ej. "30 de septiembre de 2018", "September 30, 2018", "16 de mayo de 2024")
+                    if (/^(?:\d{1,2}\s+de\s+[a-z]+\s+de\s+\d{4}|[A-Z][a-z]+\s+\d{1,2},\s+\d{4})$/i.test(line)) {
+                        break;
+                    }
+
                     captionLines.push(line);
                     currentIdx++;
                 }
