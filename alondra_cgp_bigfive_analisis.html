@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Perfil Big Five (OCEAN) - @alondra_cgp</title>
+    <meta name="description" content="Análisis visual de personalidad Big Five a partir del perfil de Instagram de @alondra_cgp">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg: #090912;
+            --bg-card: rgba(255, 255, 255, 0.035);
+            --bg-card-hover: rgba(255, 255, 255, 0.06);
+            --border: rgba(255, 255, 255, 0.08);
+            --border-hover: rgba(255, 255, 255, 0.16);
+            --text: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-dim: #64748b;
+            --primary: #8b5cf6;
+            --font: 'Inter', -apple-system, sans-serif;
+            --radius: 16px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--font);
+            min-height: 100vh;
+            padding-bottom: 60px;
+            overflow-x: hidden;
+        }
+
+        /* Glow orbs */
+        .bg-orb {
+            position: fixed; border-radius: 50%; pointer-events: none;
+            filter: blur(140px); opacity: 0.13; z-index: 0;
+        }
+        .orb-1 { width: 550px; height: 550px; background: #8b5cf6; top: -150px; left: -100px; }
+        .orb-2 { width: 500px; height: 500px; background: #06b6d4; bottom: -100px; right: -50px; }
+
+        .container {
+            max-width: 1240px;
+            margin: 0 auto;
+            padding: 30px 24px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .glass {
+            background: var(--bg-card);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 20px;
+            padding: 24px 30px;
+            margin-bottom: 24px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+        }
+
+        .avatar-box {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #7c3aed, #06b6d4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            font-weight: 800;
+            color: #fff;
+            box-shadow: 0 0 20px rgba(124, 58, 237, 0.4);
+        }
+
+        .profile-title {
+            font-size: 26px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+
+        .profile-bio {
+            font-size: 13.5px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+            max-width: 620px;
+            line-height: 1.45;
+        }
+
+        .actions-group {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 10px 18px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text);
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: var(--border-hover);
+        }
+
+        /* Metrics grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .metric-card {
+            padding: 18px 20px;
+        }
+
+        .metric-label {
+            font-size: 12px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .metric-val {
+            font-size: 24px;
+            font-weight: 800;
+            margin-top: 6px;
+            color: #fff;
+        }
+
+        /* Main layout: Chart + Trait summary */
+        .top-analysis-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 30px;
+        }
+
+        @media (max-width: 900px) {
+            .top-analysis-grid { grid-template-columns: 1fr; }
+        }
+
+        .chart-box {
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 420px;
+        }
+
+        .overview-box {
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .box-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .ocean-legend {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 14px;
+        }
+
+        .legend-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 14px;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .legend-trait {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .legend-score {
+            font-weight: 800;
+            font-size: 15px;
+        }
+
+        /* Detailed Trait Cards */
+        .section-heading {
+            margin: 36px 0 20px 0;
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: -0.3px;
+        }
+
+        .traits-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .trait-card {
+            padding: 24px;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+        .trait-card:hover {
+            border-color: var(--border-hover);
+        }
+
+        .trait-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 14px;
+        }
+
+        .trait-title-group {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .trait-id-pill {
+            padding: 4px 10px;
+            border: 1px solid;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+        }
+
+        .trait-name {
+            font-size: 19px;
+            font-weight: 700;
+        }
+
+        .trait-level {
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 2px;
+            display: block;
+        }
+
+        .trait-score-num {
+            font-size: 30px;
+            font-weight: 900;
+            letter-spacing: -1px;
+        }
+
+        .progress-track {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 6px;
+            overflow: hidden;
+            margin-bottom: 16px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 6px;
+            transition: width 1s ease-in-out;
+        }
+
+        .trait-desc {
+            font-size: 14px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            margin-bottom: 18px;
+        }
+
+        .section-subtitle {
+            font-size: 12.5px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+        }
+
+        .reasons-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 18px;
+        }
+
+        .reasons-list li {
+            font-size: 13.5px;
+            color: #e2e8f0;
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            line-height: 1.45;
+        }
+
+        .reason-bullet {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            position: relative;
+            top: -2px;
+        }
+
+        .badges-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 18px;
+        }
+
+        .badge {
+            padding: 4px 10px;
+            border-radius: 8px;
+            font-size: 12.5px;
+            font-weight: 600;
+        }
+
+        .evidence-section {
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px dashed rgba(255, 255, 255, 0.08);
+        }
+
+        .evidence-quote {
+            background: rgba(0, 0, 0, 0.25);
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 12.5px;
+            font-style: italic;
+            color: #cbd5e1;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-top: 8px;
+            line-height: 1.45;
+        }
+
+        .evidence-quote svg {
+            flex-shrink: 0;
+            margin-top: 3px;
+        }
+
+        .footer {
+            margin-top: 40px;
+            text-align: center;
+            font-size: 13px;
+            color: var(--text-dim);
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-orb orb-1"></div>
+    <div class="bg-orb orb-2"></div>
+
+    <div class="container">
+        <!-- Header -->
+        <header class="header glass">
+            <div class="user-info">
+                <div class="avatar-box">AL</div>
+                <div>
+                    <h1 class="profile-title">@alondra_cgp</h1>
+                    <p class="profile-bio">Esposa, mamá de Camilo y Ami, Socióloga, Consultora 💪🏽 político-Digital 👩🏻‍💻, política guiada en datos 🧡 #Ecuatoriana | alondra_cgp</p>
+                </div>
+            </div>
+            <div class="actions-group">
+                <button class="btn" onclick="window.print()">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                    Imprimir / PDF
+                </button>
+            </div>
+        </header>
+
+        <!-- Metrics Grid -->
+        <div class="metrics-grid">
+            <div class="metric-card glass">
+                <div class="metric-label">Posts Analizados</div>
+                <div class="metric-val">50</div>
+            </div>
+            <div class="metric-card glass">
+                <div class="metric-label">Seguidores</div>
+                <div class="metric-val">2,589</div>
+            </div>
+            <div class="metric-card glass">
+                <div class="metric-label">Seguidos</div>
+                <div class="metric-val">2,441</div>
+            </div>
+            <div class="metric-card glass">
+                <div class="metric-label">Ratio Social</div>
+                <div class="metric-val">1.06</div>
+            </div>
+            <div class="metric-card glass">
+                <div class="metric-label">Tokens Léxicos</div>
+                <div class="metric-val">2,862</div>
+            </div>
+            <div class="metric-card glass">
+                <div class="metric-label">Menciones @</div>
+                <div class="metric-val">30</div>
+            </div>
+        </div>
+
+        <!-- Radar Chart + Overview -->
+        <div class="top-analysis-grid">
+            <div class="chart-box glass">
+                <div class="box-title" style="width: 100%;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                    Mapa Psicométrico Radar (OCEAN)
+                </div>
+                <div style="width: 100%; max-width: 380px; position: relative;">
+                    <canvas id="radarChart"></canvas>
+                </div>
+            </div>
+
+            <div class="overview-box glass">
+                <div>
+                    <div class="box-title">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                        Resumen de Dimensiones
+                    </div>
+                    <p style="font-size: 13.5px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 12px;">
+                        Perfilación construida mediante minería textual y análisis estilométrico sobre captions, biografía y patrones de interacción social en Instagram.
+                    </p>
+                    <div class="ocean-legend">
+                        <div class="legend-row">
+                            <div class="legend-trait">
+                                <span class="legend-dot" style="background: #06b6d4;"></span>
+                                <span>Apertura (Openness)</span>
+                            </div>
+                            <span class="legend-score" style="color: #06b6d4;">96%</span>
+                        </div>
+                        <div class="legend-row">
+                            <div class="legend-trait">
+                                <span class="legend-dot" style="background: #8b5cf6;"></span>
+                                <span>Responsabilidad (Conscientiousness)</span>
+                            </div>
+                            <span class="legend-score" style="color: #8b5cf6;">97%</span>
+                        </div>
+                        <div class="legend-row">
+                            <div class="legend-trait">
+                                <span class="legend-dot" style="background: #f59e0b;"></span>
+                                <span>Extraversión (Extraversion)</span>
+                            </div>
+                            <span class="legend-score" style="color: #f59e0b;">95%</span>
+                        </div>
+                        <div class="legend-row">
+                            <div class="legend-trait">
+                                <span class="legend-dot" style="background: #10b981;"></span>
+                                <span>Amabilidad (Agreeableness)</span>
+                            </div>
+                            <span class="legend-score" style="color: #10b981;">98%</span>
+                        </div>
+                        <div class="legend-row">
+                            <div class="legend-trait">
+                                <span class="legend-dot" style="background: #ec4899;"></span>
+                                <span>Estabilidad vs. Neuroticismo</span>
+                            </div>
+                            <span class="legend-score" style="color: #ec4899;">35.7%</span>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-dim);">
+                    Generado el 2026-10-19 19:12:48 · Modelo Big Five / OCEAN
+                </div>
+            </div>
+        </div>
+
+        <!-- Detailed Cards -->
+        <h2 class="section-heading">Desglose Detallado por Rasgo</h2>
+        <div class="traits-container">
+            
+        <div class="trait-card glass" id="card-openness">
+            <div class="trait-header">
+                <div class="trait-title-group">
+                    <div class="trait-id-pill" style="color: #06b6d4; border-color: #06b6d460;">
+                        OPEN
+                    </div>
+                    <div>
+                        <h3 class="trait-name">Apertura a la Experiencia</h3>
+                        <span class="trait-level" style="color: #06b6d4;">Muy Alto</span>
+                    </div>
+                </div>
+                <div class="trait-score-box">
+                    <span class="trait-score-num" style="color: #06b6d4;">96%</span>
+                </div>
+            </div>
+
+            <!-- Barra de progreso -->
+            <div class="progress-track">
+                <div class="progress-fill" style="width: 96%; background: linear-gradient(90deg, #06b6d490, #06b6d4); box-shadow: 0 0 12px rgba(6, 182, 212, 0.4);"></div>
+            </div>
+
+            <p class="trait-desc">Curiosidad intelectual, pensamiento estratégico, interés en tecnología, datos e innovación política y social.</p>
+
+            <div class="trait-body">
+                <div class="section-subtitle">¿Por qué se da este resultado? (Factores Clave):</div>
+                <ul class="reasons-list">
+                    <li><span class='reason-bullet' style='background: #06b6d4;'></span>Densidad de términos vinculados a estrategia, análisis, innovación y ciencia (62 apariciones clave).</li><li><span class='reason-bullet' style='background: #06b6d4;'></span>Enfoque multidisciplinario y conceptual en publicaciones ('digital, datos, política, mundo').</li><li><span class='reason-bullet' style='background: #06b6d4;'></span>Uso diverso de etiquetas temáticas e interconexión informativa (56 hashtags distintos).</li>
+                </ul>
+
+                <div class="keywords-wrap">
+                    <div class="section-subtitle">Léxico Psicodinámico Detectado:</div>
+                    <div class="badges-row">
+                        <span class="badge" style="background: rgba(6, 182, 212, 0.4); color: #06b6d4; border: 1px solid #06b6d440;">
+                digital <small>(12)</small>
+            </span><span class="badge" style="background: rgba(6, 182, 212, 0.4); color: #06b6d4; border: 1px solid #06b6d440;">
+                datos <small>(11)</small>
+            </span><span class="badge" style="background: rgba(6, 182, 212, 0.4); color: #06b6d4; border: 1px solid #06b6d440;">
+                política <small>(10)</small>
+            </span><span class="badge" style="background: rgba(6, 182, 212, 0.4); color: #06b6d4; border: 1px solid #06b6d440;">
+                mundo <small>(4)</small>
+            </span><span class="badge" style="background: rgba(6, 182, 212, 0.4); color: #06b6d4; border: 1px solid #06b6d440;">
+                análisis <small>(4)</small>
+            </span><span class="badge" style="background: rgba(6, 182, 212, 0.4); color: #06b6d4; border: 1px solid #06b6d440;">
+                aprendizaje <small>(3)</small>
+            </span>
+                    </div>
+                </div>
+
+                
+            <div class="evidence-section">
+                <div class="section-subtitle">Evidencia Textual Extraída:</div>
+                <div class="evidence-quote">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path></svg>
+                    <span>“Esposa, mamá de Camilo y Ami, Socióloga, Consultora 💪🏽 político-Digital 👩🏻‍💻, política guiada en datos 🧡 #Ecuatoriana”</span>
+                </div><div class="evidence-quote">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path></svg>
+                    <span>“Cada campaña es un nuevo aprendizaje nos despedimos de #Colombia en esta primera vuelta, @delaespriella_style entendió que las redes sociales eran el canal para hablarle a los electores, @ivancepedacastr tiene un reto enorme reinventar su propuesta comunicacional, nos vemos en la segunda vuelta, que honor pisar fuerte desde #Ecuador para el mundo 💪🏽💪🏽🔥🔥🔥📊📊 con @gosocialsuite”</span>
+                </div><div class="evidence-quote">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path></svg>
+                    <span>“Si yo te contara Alondra todo lo que haz pasado te asombrarías de lo increíble que eres, cada aprendizaje de niñez funcionó, la caída en la bicicleta, vencer el miedo en la escalera china, los partidos de fútbol, repetir los puntos en las “I”, gritar a los vecinos para jugar, construir las casas de barbies con cajas de zapatos”</span>
+                </div>
+            </div>
+            
+            </div>
+        </div>
+        
+        <div class="trait-card glass" id="card-conscientiousness">
+            <div class="trait-header">
+                <div class="trait-title-group">
+                    <div class="trait-id-pill" style="color: #8b5cf6; border-color: #8b5cf660;">
+                        CONS
+                    </div>
+                    <div>
+                        <h3 class="trait-name">Responsabilidad y Tesón</h3>
+                        <span class="trait-level" style="color: #8b5cf6;">Muy Alto</span>
+                    </div>
+                </div>
+                <div class="trait-score-box">
+                    <span class="trait-score-num" style="color: #8b5cf6;">97%</span>
+                </div>
+            </div>
+
+            <!-- Barra de progreso -->
+            <div class="progress-track">
+                <div class="progress-fill" style="width: 97%; background: linear-gradient(90deg, #8b5cf690, #8b5cf6); box-shadow: 0 0 12px rgba(139, 92, 246, 0.4);"></div>
+            </div>
+
+            <p class="trait-desc">Alta autodisciplina, orientación clara a metas tangibles, rigor metodológico y compromiso con deberes laborales y formativos.</p>
+
+            <div class="trait-body">
+                <div class="section-subtitle">¿Por qué se da este resultado? (Factores Clave):</div>
+                <ul class="reasons-list">
+                    <li><span class='reason-bullet' style='background: #8b5cf6;'></span>Fuerte presencia de vocabulario orientado a disciplina, trabajo, metas y cumplimiento de objetivos (67 menciones).</li><li><span class='reason-bullet' style='background: #8b5cf6;'></span>Biografía con definición clara de roles y orientación metodológica explícita ('política guiada en datos').</li><li><span class='reason-bullet' style='background: #8b5cf6;'></span>Narrativa de rutinas estructuradas, puntualidad y balance entre academia, proyectos y responsabilidades diarias.</li>
+                </ul>
+
+                <div class="keywords-wrap">
+                    <div class="section-subtitle">Léxico Psicodinámico Detectado:</div>
+                    <div class="badges-row">
+                        <span class="badge" style="background: rgba(139, 92, 246, 0.4); color: #8b5cf6; border: 1px solid #8b5cf640;">
+                datos <small>(11)</small>
+            </span><span class="badge" style="background: rgba(139, 92, 246, 0.4); color: #8b5cf6; border: 1px solid #8b5cf640;">
+                trabajo <small>(6)</small>
+            </span><span class="badge" style="background: rgba(139, 92, 246, 0.4); color: #8b5cf6; border: 1px solid #8b5cf640;">
+                campaña <small>(5)</small>
+            </span><span class="badge" style="background: rgba(139, 92, 246, 0.4); color: #8b5cf6; border: 1px solid #8b5cf640;">
+                esfuerzo <small>(4)</small>
+            </span><span class="badge" style="background: rgba(139, 92, 246, 0.4); color: #8b5cf6; border: 1px solid #8b5cf640;">
+                universidad <small>(4)</small>
+            </span><span class="badge" style="background: rgba(139, 92, 246, 0.4); color: #8b5cf6; border: 1px solid #8b5cf640;">
+                colegio <small>(4)</small>
+            </span>
+                    </div>
+                </div>
+
+                
+            <div class="evidence-section">
+                <div class="section-subtitle">Evidencia Textual Extraída:</div>
+                <div class="evidence-quote">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path></svg>
+                    <span>“Sales muy puntual para dejar a Ami en la escuela y correr al trabajo, en el día estás al pendiente de Camilo y Ami, que lleguen del colegio, almuercen y hagan tareas, sales del trabajo y corres a la universidad, a rodearte del cariño y la admiración de tus estudiantes, llegas a casa dejas la leva, y empiezas en la labor de papá, si mami está dando clases o en reuniones, a colaborar con la merienda, revisar tareas, pendientes de los niños y preparar el versículo de la noche, agradezco a Dios por tu vida, y el amor que entregas a lo más valioso que son tus hijos… feliz día amor, que este trabajo de papá siempre sea tu mejor medalla 🥇…”</span>
+                </div><div class="evidence-quote">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path></svg>
+                    <span>“Si algo atesoramos con mi esposo, es el valor enorme de la familia, nuestros hijos son el ejemplo de comprensión y paciencia, cualidades que en la vida adulta van desapareciendo, nuestros hijos son los que restan horas del tiempo de mami y papi con ellos,  por entender las responsabilidades del trabajo, la docencia y varias actividades, que en el camino asumimos para cumplir nuestros sueños como individuos lejos del rol de padres, nuestros hijos esperan y comprenden cuando papi es director de tesis, califica exámenes, atiende clientes o cuando tiene que agilizar un nuevo desarrollo tecnológico, mis hijos son los primeros en alegrarse, cuando mami está en televisión nacional sorteando los dardos de la opinión pública, cuando camina el terreno minado de la política, entre otros”</span>
+                </div><div class="evidence-quote">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path></svg>
+                    <span>“frencho cada aplauso te lo mereces, pues en tu vida profesional jamás improvisas, eres el ejemplo de esfuerzo, disciplina y autoeducación, en la casa todos aprendemos mucho de tu ejemplo, y sobre todo de la inteligencia y visión que te acompaña, hoy me sentí orgullosa de tu exposición, y no solo por tener el privilegio de ser tu esposa, sino por ser parte del #TeamGolden y ver cómo nuestro capital tecnológico evoluciona bajo tu liderazgo 💪🏽💪🏽💪🏽💪🏽 estamos convencidos que lo que viene es otro nivel, en la vida amor mío, la irreverencia se mide por la capacidad de transformar y ver aquello que otros no ven… te amo💪🏽💪🏽💪🏽 y sigue transformándolo todo…”</span>
+                </div>
+            </div>
+            
+            </div>
+        </div>
+        
+        <div class="trait-card glass" id="card-extraversion">
+            <div class="trait-header">
+                <div class="trait-title-group">
+                    <div class="trait-id-pill" style="color: #f59e0b; border-color: #f59e0b60;">
+                        EXTR
+                    </div>
+                    <div>
+                        <h3 class="trait-name">Extraversión</h3>
+                        <span class="trait-level" style="color: #f59e0b;">Muy Alto</span>
+                    </div>
+                </div>
+                <div class="trait-score-box">
+                    <span class="trait-score-num" style="color: #f59e0b;">95%</span>
+                </div>
+            </div>
+
+            <!-- Barra de progreso -->
+            <div class="progress-track">
+                <div class="progress-fill" style="width: 95%; background: linear-gradient(90deg, #f59e0b90, #f59e0b); box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);"></div>
+            </div>
+
+            <p class="trait-desc">Sociabilidad alta, capacidad de persuasión en redes, gusto por el trabajo colectivo, visibilidad pública y energía verbal.</p>
+
+            <div class="trait-body">
+                <div class="section-subtitle">¿Por qué se da este resultado? (Factores Clave):</div>
+                <ul class="reasons-list">
+                    <li><span class='reason-bullet' style='background: #f59e0b;'></span>Alta frecuencia de menciones y trabajo en red comunitaria (30 menciones '@' detectadas).</li><li><span class='reason-bullet' style='background: #f59e0b;'></span>Tono discursivo activo, comunicativo y dirigido a públicos abiertos y colectivos ('redes, sociales, entrevistas, equipo').</li><li><span class='reason-bullet' style='background: #f59e0b;'></span>Interacción continua con audiencias y referencias recurrentes a equipos y electores.</li>
+                </ul>
+
+                <div class="keywords-wrap">
+                    <div class="section-subtitle">Léxico Psicodinámico Detectado:</div>
+                    <div class="badges-row">
+                        <span class="badge" style="background: rgba(245, 158, 11, 0.4); color: #f59e0b; border: 1px solid #f59e0b40;">
+                redes <small>(26)</small>
+            </span><span class="badge" style="background: rgba(245, 158, 11, 0.4); color: #f59e0b; border: 1px solid #f59e0b40;">
+                sociales <small>(15)</small>
+            </span><span class="badge" style="background: rgba(245, 158, 11, 0.4); color: #f59e0b; border: 1px solid #f59e0b40;">
+                entrevistas <small>(6)</small>
+            </span><span class="badge" style="background: rgba(245, 158, 11, 0.4); color: #f59e0b; border: 1px solid #f59e0b40;">
+                equipo <small>(5)</small>
+            </span><span class="badge" style="background: rgba(245, 158, 11, 0.4); color: #f59e0b; border: 1px solid #f59e0b40;">
+                campaña <small>(5)</small>
+            </span><span class="badge" style="background: rgba(245, 158, 11, 0.4); color: #f59e0b; border: 1px solid #f59e0b40;">
+                compartir <small>(4)</small>
+            </span>
+                    </div>
+                </div>
+
+                
+            <div class="evidence-section">
+                <div class="section-subtitle">Evidencia Textual Extraída:</div>
+                <div class="evidence-quote">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path></svg>
+                    <span>“No siempre gana quien más publica, sino quien más conecta con la gente”</span>
+                </div><div class="evidence-quote">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path></svg>
+                    <span>“Que orgullo pisar la poderosa @uceec  en una de las facultades de mayor prestigio y renombre, pues a graduado a los mejores cerebros de la tecnología de este país, nos vemos el jueves, con la data desde @gosocialsuite compartiré este espacio, con mentes brillantes de nuestro #Team pero en especial con mi esposo y responsable de guiar todo un equipo en la creación de plataformas del más alto nivel regional, no se lo pierdan 😉😉♥️♥️”</span>
+                </div><div class="evidence-quote">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path></svg>
+                    <span>“¿Agregarías algún otro equipo a esta lista”</span>
+                </div>
+            </div>
+            
+            </div>
+        </div>
+        
+        <div class="trait-card glass" id="card-agreeableness">
+            <div class="trait-header">
+                <div class="trait-title-group">
+                    <div class="trait-id-pill" style="color: #10b981; border-color: #10b98160;">
+                        AGRE
+                    </div>
+                    <div>
+                        <h3 class="trait-name">Amabilidad y Afabilidad</h3>
+                        <span class="trait-level" style="color: #10b981;">Muy Alto</span>
+                    </div>
+                </div>
+                <div class="trait-score-box">
+                    <span class="trait-score-num" style="color: #10b981;">98%</span>
+                </div>
+            </div>
+
+            <!-- Barra de progreso -->
+            <div class="progress-track">
+                <div class="progress-fill" style="width: 98%; background: linear-gradient(90deg, #10b98190, #10b981); box-shadow: 0 0 12px rgba(16, 185, 129, 0.4);"></div>
+            </div>
+
+            <p class="trait-desc">Empatía profunda, vocación de servicio, alta valoración del entorno familiar y propensión al reconocimiento y la gratitud sincera.</p>
+
+            <div class="trait-body">
+                <div class="section-subtitle">¿Por qué se da este resultado? (Factores Clave):</div>
+                <ul class="reasons-list">
+                    <li><span class='reason-bullet' style='background: #10b981;'></span>Expresiones intensas y frecuentes de gratitud, afecto y reconocimiento hacia otros (120 apariciones).</li><li><span class='reason-bullet' style='background: #10b981;'></span>Identidad fuertemente anclada en el cuidado interpersonal y la familia en bio y publicaciones ('mamá', 'esposa', 'amor', 'apoyo').</li><li><span class='reason-bullet' style='background: #10b981;'></span>Tono conciliador, colaborativo y con abundancia de elementos de calidez humana y empatía.</li>
+                </ul>
+
+                <div class="keywords-wrap">
+                    <div class="section-subtitle">Léxico Psicodinámico Detectado:</div>
+                    <div class="badges-row">
+                        <span class="badge" style="background: rgba(16, 185, 129, 0.4); color: #10b981; border: 1px solid #10b98140;">
+                dios <small>(12)</small>
+            </span><span class="badge" style="background: rgba(16, 185, 129, 0.4); color: #10b981; border: 1px solid #10b98140;">
+                amor <small>(11)</small>
+            </span><span class="badge" style="background: rgba(16, 185, 129, 0.4); color: #10b981; border: 1px solid #10b98140;">
+                mamá <small>(10)</small>
+            </span><span class="badge" style="background: rgba(16, 185, 129, 0.4); color: #10b981; border: 1px solid #10b98140;">
+                papá <small>(10)</small>
+            </span><span class="badge" style="background: rgba(16, 185, 129, 0.4); color: #10b981; border: 1px solid #10b98140;">
+                hijos <small>(9)</small>
+            </span><span class="badge" style="background: rgba(16, 185, 129, 0.4); color: #10b981; border: 1px solid #10b98140;">
+                gracias <small>(8)</small>
+            </span>
+                    </div>
+                </div>
+
+                
+            <div class="evidence-section">
+                <div class="section-subtitle">Evidencia Textual Extraída:</div>
+                <div class="evidence-quote">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path></svg>
+                    <span>“Esposa, mamá de Camilo y Ami, Socióloga, Consultora 💪🏽 político-Digital 👩🏻‍💻, política guiada en datos 🧡 #Ecuatoriana”</span>
+                </div><div class="evidence-quote">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path></svg>
+                    <span>“Sales muy puntual para dejar a Ami en la escuela y correr al trabajo, en el día estás al pendiente de Camilo y Ami, que lleguen del colegio, almuercen y hagan tareas, sales del trabajo y corres a la universidad, a rodearte del cariño y la admiración de tus estudiantes, llegas a casa dejas la leva, y empiezas en la labor de papá, si mami está dando clases o en reuniones, a colaborar con la merienda, revisar tareas, pendientes de los niños y preparar el versículo de la noche, agradezco a Dios por tu vida, y el amor que entregas a lo más valioso que son tus hijos… feliz día amor, que este trabajo de papá siempre sea tu mejor medalla 🥇…”</span>
+                </div><div class="evidence-quote">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path></svg>
+                    <span>“Cada campaña es un nuevo aprendizaje nos despedimos de #Colombia en esta primera vuelta, @delaespriella_style entendió que las redes sociales eran el canal para hablarle a los electores, @ivancepedacastr tiene un reto enorme reinventar su propuesta comunicacional, nos vemos en la segunda vuelta, que honor pisar fuerte desde #Ecuador para el mundo 💪🏽💪🏽🔥🔥🔥📊📊 con @gosocialsuite”</span>
+                </div>
+            </div>
+            
+            </div>
+        </div>
+        
+        <div class="trait-card glass" id="card-neuroticism">
+            <div class="trait-header">
+                <div class="trait-title-group">
+                    <div class="trait-id-pill" style="color: #ec4899; border-color: #ec489960;">
+                        NEUR
+                    </div>
+                    <div>
+                        <h3 class="trait-name">Estabilidad Emocional vs. Neuroticismo</h3>
+                        <span class="trait-level" style="color: #ec4899;">Estable (Neuroticismo Bajo)</span>
+                    </div>
+                </div>
+                <div class="trait-score-box">
+                    <span class="trait-score-num" style="color: #ec4899;">35.7%</span>
+                </div>
+            </div>
+
+            <!-- Barra de progreso -->
+            <div class="progress-track">
+                <div class="progress-fill" style="width: 35.7%; background: linear-gradient(90deg, #ec489990, #ec4899); box-shadow: 0 0 12px rgba(236, 72, 153, 0.4);"></div>
+            </div>
+
+            <p class="trait-desc">Puntuación baja en neuroticismo indica alta estabilidad emocional, temple frente a desafíos de campaña y resiliencia ante el estrés.</p>
+
+            <div class="trait-body">
+                <div class="section-subtitle">¿Por qué se da este resultado? (Factores Clave):</div>
+                <ul class="reasons-list">
+                    <li><span class='reason-bullet' style='background: #ec4899;'></span>Baja frecuencia de términos asociados a quejas, victimización o ansiedad desbordada (10 términos de alerta).</li><li><span class='reason-bullet' style='background: #ec4899;'></span>Los retos y momentos de alta presión se enmarcan como oportunidades de aprendizaje y motivación constructiva.</li><li><span class='reason-bullet' style='background: #ec4899;'></span>Alta estabilidad emocional reflejada en un balance de serenidad, propósito profesional y contención familiar.</li>
+                </ul>
+
+                <div class="keywords-wrap">
+                    <div class="section-subtitle">Léxico Psicodinámico Detectado:</div>
+                    <div class="badges-row">
+                        <span class="badge" style="background: rgba(236, 72, 153, 0.4); color: #ec4899; border: 1px solid #ec489940;">
+                miedo <small>(3)</small>
+            </span><span class="badge" style="background: rgba(236, 72, 153, 0.4); color: #ec4899; border: 1px solid #ec489940;">
+                crisis <small>(2)</small>
+            </span><span class="badge" style="background: rgba(236, 72, 153, 0.4); color: #ec4899; border: 1px solid #ec489940;">
+                temor <small>(1)</small>
+            </span><span class="badge" style="background: rgba(236, 72, 153, 0.4); color: #ec4899; border: 1px solid #ec489940;">
+                reto <small>(1)</small>
+            </span><span class="badge" style="background: rgba(236, 72, 153, 0.4); color: #ec4899; border: 1px solid #ec489940;">
+                despedimos <small>(1)</small>
+            </span><span class="badge" style="background: rgba(236, 72, 153, 0.4); color: #ec4899; border: 1px solid #ec489940;">
+                presión <small>(1)</small>
+            </span>
+                    </div>
+                </div>
+
+                
+            <div class="evidence-section">
+                <div class="section-subtitle">Evidencia Textual Extraída:</div>
+                <div class="evidence-quote">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ec4899" stroke-width="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path></svg>
+                    <span>“Si yo te contara Alondra todo lo que haz pasado te asombrarías de lo increíble que eres, cada aprendizaje de niñez funcionó, la caída en la bicicleta, vencer el miedo en la escalera china, los partidos de fútbol, repetir los puntos en las “I”, gritar a los vecinos para jugar, construir las casas de barbies con cajas de zapatos”</span>
+                </div><div class="evidence-quote">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ec4899" stroke-width="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path></svg>
+                    <span>“Todo sirvió para que jamás tengas miedo, pues llegaste más lejos de lo que algún día imaginaste, todo lo que eres hoy es gracias a la niña que fuiste ayer…”</span>
+                </div><div class="evidence-quote">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ec4899" stroke-width="2"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"></path></svg>
+                    <span>“La diferencia la hacen los datos, la estrategia y la capacidad de anticiparse a las crisis”</span>
+                </div>
+            </div>
+            
+            </div>
+        </div>
+        
+        </div>
+
+        <footer class="footer">
+            <p>Análisis Psicométrico de Huella Digital · Basado en el marco Big Five (OCEAN)</p>
+        </footer>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('radarChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'radar',
+            data: {
+                labels: ['Apertura', 'Responsabilidad', 'Extraversión', 'Amabilidad', 'Neuroticismo'],
+                datasets: [{
+                    label: 'Puntaje (%)',
+                    data: [96, 97, 95, 98, 35.7],
+                    backgroundColor: 'rgba(139, 92, 246, 0.25)',
+                    borderColor: '#8b5cf6',
+                    borderWidth: 2,
+                    pointBackgroundColor: ['#06b6d4', '#8b5cf6', '#f59e0b', '#10b981', '#ec4899'],
+                    pointBorderColor: '#fff',
+                    pointHoverBackgroundColor: '#fff',
+                    pointHoverBorderColor: '#8b5cf6',
+                    pointRadius: 5
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                scales: {
+                    r: {
+                        angleLines: { color: 'rgba(255, 255, 255, 0.1)' },
+                        grid: { color: 'rgba(255, 255, 255, 0.08)' },
+                        pointLabels: {
+                            color: '#94a3b8',
+                            font: { size: 12, weight: '600', family: 'Inter' }
+                        },
+                        ticks: {
+                            display: false,
+                            min: 0,
+                            max: 100,
+                            stepSize: 20
+                        },
+                        suggestedMin: 0,
+                        suggestedMax: 100
+                    }
+                },
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
