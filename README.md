@@ -111,3 +111,27 @@ Al terminar, se generará automáticamente el archivo `{usuario}_datos.json` cor
 1. Abre el archivo `dashboard.html` en cualquier navegador web (Chrome, Edge, Firefox).
 2. Arrastra o selecciona el archivo JSON generado (ej. `sausage_player_datos.json`).
 3. Explora las estadísticas generales, publicaciones, comentarios y listas de relaciones.
+
+---
+
+## 🧠 Análisis Psicométrico con Google Gemini AI (Big Five / OCEAN)
+
+Puedes analizar el perfil psicológico, estilo comunicativo y rasgos de personalidad a partir del archivo JSON extraído:
+
+```bash
+# Ejecución interactiva (detecta archivos json disponibles y solicita API key si no está en .env)
+python bigfive_analyzer.py
+
+# Analizar un archivo específico con Gemini
+python bigfive_analyzer.py sausage_player_datos.json
+
+# Pasar API Key directamente por terminal
+python bigfive_analyzer.py sausage_player_datos.json --api-key TU_GEMINI_API_KEY
+
+# Forzar modo heurístico local sin conexión a la API
+python bigfive_analyzer.py sausage_player_datos.json --offline
+```
+
+Al ejecutarse genera:
+- Resumen enriquecido en la consola con arquetipo de personalidad, síntesis psicológica y fortalezas conductuales.
+- Reporte web interactivo `{usuario}_bigfive_analisis.html` con gráfico radar de dimensiones OCEAN, avatar del perfil, insignias de motor de análisis y justificaciones con evidencia real.
