@@ -735,8 +735,8 @@
             // Media HTML
             let mediaHtml = '';
             if (post.imagen_url) {
-                const badgeText = post.tipo_media === 'carousel'
-                    ? `📸 Carrusel (${post.imagenes?.length || 'múltiple'})`
+                const badgeText = (post.tipo_media === 'carousel' && post.imagenes && post.imagenes.length > 1)
+                    ? `📸 Carrusel (${post.imagenes.length})`
                     : (post.tipo_media === 'video' ? '▶ Video / Reel' : '');
                 const badgeHtml = badgeText ? `<span class="post-media-badge">${badgeText}</span>` : '';
 
@@ -757,7 +757,7 @@
                 : '';
 
             let carouselThumbsHtml = '';
-            if (post.imagenes && post.imagenes.length > 1) {
+            if (post.tipo_media === 'carousel' && post.imagenes && post.imagenes.length > 1) {
                 carouselThumbsHtml = `
                     <div class="carousel-preview" title="Fotos del carrusel">
                         ${post.imagenes.map((imgUrl, i) => `

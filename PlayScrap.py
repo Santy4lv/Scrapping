@@ -667,11 +667,11 @@ async def extraer_detalle_post(
         media_info = await page.evaluate(
             r"""(targetUser) => {
             const container = document.querySelector('article') || document.querySelector('main') || document.body;
-            if (!container) return { tipo: 'image', imagen_url: '', imagenes: [], video_url: '', alt_texto: '' };
+            if (!container) return { tipo: 'image', imagen_url: '', imagenes: [], video_url: '', alt_texto: '', has_next: false };
 
-            // 1. Video o Reel
+            // 1. Video o Reel (verificar que no sea de la sección de recomendaciones)
             const video = container.querySelector('video');
-            if (video) {
+            if (video && !video.closest('a[href*="/p/"], a[href*="/reel/"]')) {
                 const poster = video.getAttribute('poster') || '';
                 const src = video.getAttribute('src') || video.querySelector('source')?.getAttribute('src') || '';
                 return {
@@ -684,17 +684,35 @@ async def extraer_detalle_post(
                 };
             }
 
-            // 2. Imágenes de la publicación (excluyendo avatares e iconos pequeños)
+            // 2. Extraer imágenes del post actual EXCLUYENDO 'Más publicaciones' y avatares
             const imgs = Array.from(container.querySelectorAll('img')).filter(img => {
-                if (img.closest('header') && !img.closest("div[role='button']")) return false;
+                // Descartar imágenes de 'Más publicaciones de...' (vienen dentro de links a otros posts)
+                if (img.closest('a[href*="/p/"], a[href*="/reel/"]')) return false;
+
+                // Descartar cabecera y avatares
+                if (img.closest('header')) return false;
                 const rect = img.getBoundingClientRect();
-                if (rect.width > 0 && rect.width < 120 && rect.height < 120) return false;
+                if (rect.width > 0 && (rect.width < 120 || rect.height < 120)) return false;
+
+                const alt = (img.getAttribute('alt') || '').toLowerCase();
+                if (alt.includes('avatar') || alt.includes('profile picture') || alt.includes('foto del perfil')) return false;
+
                 const src = img.getAttribute('src') || img.src || '';
                 if (!src || !src.startsWith('http') || src.includes('data:image')) return false;
-                const alt = img.getAttribute('alt') || '';
-                if (alt.toLowerCase().includes('avatar') || alt.toLowerCase().includes('profile picture')) return false;
                 return true;
             });
+
+            // 3. Detectar si es un carrusel REAL (slide container <ul> o botón Siguiente exclusivo de medios)
+            const carouselUl = Array.from(container.querySelectorAll('ul')).find(ul => 
+                !ul.closest('a[href*="/p/"]') && ul.querySelectorAll('li img').length > 0
+            );
+
+            const nextBtn = Array.from(container.querySelectorAll('button')).find(btn => {
+                const label = (btn.getAttribute('aria-label') || '').trim();
+                return /^(Siguiente|Next)$/i.test(label) && !btn.closest('a[href*="/p/"]');
+            });
+
+            const isCarousel = !!carouselUl || !!nextBtn;
 
             const urls = [];
             let mainAlt = '';
@@ -708,37 +726,34 @@ async def extraer_detalle_post(
                 }
             }
 
-            const hasNext = !!container.querySelector("button[aria-label*='Siguiente'], button[aria-label*='Next']");
-            const isCarousel = urls.length > 1 || hasNext;
-
             return {
                 tipo: isCarousel ? 'carousel' : 'image',
                 imagen_url: urls[0] || '',
                 imagenes: urls,
                 video_url: '',
                 alt_texto: mainAlt,
-                has_next: hasNext,
+                has_next: !!nextBtn,
             };
         }""", target_user
         )
 
-        # Si es carrusel y tiene botón siguiente, avanzar para cargar el resto de imágenes
+        # Si es carrusel real y tiene botón siguiente, avanzar para cargar todas las diapositivas
         if media_info.get("tipo") == "carousel" and media_info.get("has_next"):
             imgs_set = list(media_info.get("imagenes", []))
-            for _ in range(8):
-                btn_next = page.locator(
-                    "article button[aria-label*='Siguiente'], article button[aria-label*='Next'], div[role='dialog'] button[aria-label*='Siguiente'], div[role='dialog'] button[aria-label*='Next']"
-                ).first
-                if await btn_next.is_visible(timeout=700):
+            for _ in range(9):
+                btn_next = page.locator("button[aria-label='Siguiente'], button[aria-label='Next']").first
+                if await btn_next.is_visible(timeout=800):
                     try:
                         await btn_next.click()
-                        await page.wait_for_timeout(500)
+                        await page.wait_for_timeout(600)
                         nuevas_urls = await page.evaluate(r"""() => {
-                            const container = document.querySelector('article') || document.body;
+                            const container = document.querySelector('article') || document.querySelector('main') || document.body;
                             return Array.from(container.querySelectorAll('img'))
                                 .filter(img => {
+                                    if (img.closest('a[href*="/p/"], a[href*="/reel/"]')) return false;
+                                    if (img.closest('header')) return false;
                                     const rect = img.getBoundingClientRect();
-                                    if (rect.width > 0 && rect.width < 120) return false;
+                                    if (rect.width > 0 && (rect.width < 120 || rect.height < 120)) return false;
                                     const src = img.getAttribute('src') || img.src || '';
                                     return src.startsWith('http') && !src.includes('data:image');
                                 })
