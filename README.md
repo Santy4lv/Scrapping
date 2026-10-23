@@ -9,20 +9,23 @@ Incluye un scraper automatizado con **Playwright** que utiliza autenticación me
 ## 🚀 Características
 
 - **Extracción de perfil y métricas:**
-  - Cantidad de publicaciones, seguidores, seguidos y biografía.
+  - Cantidad de publicaciones, seguidores, seguidos, biografía y foto de perfil.
+  - Descarga automática de la foto de perfil en formato local (`{usuario}_avatar.jpg`).
 - **Lista de Seguidores y Seguidos:**
   - Desplazamiento automático con rebote en modales para sortear lazy-loading dinámico.
-- **Detalle de Publicaciones:**
+- **Detalle de Publicaciones y Multimedia:**
+  - URLs de imágenes directas, detección de tipo (`image`, `carousel`, `video`).
+  - Navegación automática en carruseles para recolectar todas las fotografías del álbum.
+  - Extracción de texto alternativo accesible (`alt_texto`).
   - URLs de posts, descripciones completas, conteo de likes, hashtags (#) y menciones (@).
 - **Extracción de Comentarios:**
   - Recolección de comentarios asociados a cada publicación (usuario + texto).
-- **Múltiples formatos de exportación:**
-  - `{usuario}_datos.json` (Estructura jerárquica completa para el dashboard).
-  - `{usuario}_relaciones.csv` (Seguidores y seguidos).
-  - `{usuario}_publicaciones.csv` (Publicaciones y métricas).
-  - `{usuario}_comentarios.csv` (Comentarios por publicación).
+- **Exportación Integral de Datos:**
+  - `{usuario}_datos.json` (Estructura jerárquica unificada y completa con metadatos de perfil, relaciones, publicaciones, imágenes/carruseles y comentarios para el dashboard y análisis).
 - **Visualizador Web Interactivo (`dashboard.html`):**
   - Interfaz moderna con modo oscuro y diseño Glassmorphism.
+  - Avatar real del usuario en la cabecera.
+  - Renderizado visual de imágenes, carruseles y enlaces directos a Instagram.
   - Carga arrastrando y soltando (drag-and-drop) del archivo JSON.
   - Métricas clave en tarjetas dinámicas (Follower/Following ratio, engagement, etc.).
   - Pestaña de publicaciones con acordeón expandible de comentarios.
@@ -43,30 +46,63 @@ Incluye un scraper automatizado con **Playwright** que utiliza autenticación me
 
 ## ⚙️ Configuración (.env)
 
-Crea un archivo `.env` en la raíz del proyecto con tus credenciales de sesión de Instagram:
+Crea un archivo `.env` en la raíz del proyecto con tus credenciales de sesión y preferencias de extracción:
 
 ```env
 TARGET_USER=sausage_player
 IG_SESSION_ID=tu_sessionid_aqui
 IG_DS_USER_ID=tu_ds_user_id_aqui
-MAX_POSTS=0
+
+# Control modular de módulos (true/false)
+SCRAPE_FOLLOWERS=false
+SCRAPE_FOLLOWING=false
+SCRAPE_POSTS=true
+SCRAPE_COMMENTS=true
+
+# Límites de extracción (0 = sin límite)
+MAX_POSTS=5
+MAX_COMMENTS_PER_POST=10
+MAX_FOLLOWERS=0
+MAX_FOLLOWING=0
+
+# Modo de navegador
+HEADLESS=false
 ```
 
 > **Nota:** 
 > - Puedes obtener `sessionid` y `ds_user_id` desde las cookies del navegador (F12 -> Application -> Cookies -> instagram.com).
-> - `MAX_POSTS=0` procesa todas las publicaciones. Si deseas probar con un número reducido, ajusta el valor (por ejemplo, `MAX_POSTS=5`).
+> - Desactivar `SCRAPE_FOLLOWERS` y `SCRAPE_FOLLOWING` acelera considerablemente el tiempo de scraping si solo te interesan las publicaciones y el texto.
 
 ---
 
-## 🏃‍♂️ Ejecución
+## 🏃‍♂️ Ejecución y Comandos CLI
 
-Para iniciar el proceso de scraping:
+Puedes ejecutar el scraper con la configuración de `.env`:
 
 ```bash
 python PlayScrap.py
 ```
 
-Al terminar, se generarán automáticamente los archivos JSON y CSV correspondientes al usuario objetivo.
+O sobreescribir cualquier módulo y límite directamente desde la terminal:
+
+```bash
+# Atajo rápido: solo publicaciones y comentarios (ignora seguidores/seguidos)
+python PlayScrap.py --posts-only --max-posts 5
+
+# Atajo rápido: solo red de contactos (seguidores y seguidos)
+python PlayScrap.py --network-only --max-followers 50 --max-following 50
+
+# Desactivar comentarios de publicaciones para agilizar la extracción
+python PlayScrap.py --no-comments
+
+# Cambiar de usuario y ejecutar sin ventana gráfica (headless)
+python PlayScrap.py --user otro_usuario --headless --posts-only
+
+# Ver todas las opciones disponibles
+python PlayScrap.py --help
+```
+
+Al terminar, se generará automáticamente el archivo `{usuario}_datos.json` correspondiente a los módulos activos.
 
 ---
 
@@ -75,3 +111,27 @@ Al terminar, se generarán automáticamente los archivos JSON y CSV correspondie
 1. Abre el archivo `dashboard.html` en cualquier navegador web (Chrome, Edge, Firefox).
 2. Arrastra o selecciona el archivo JSON generado (ej. `sausage_player_datos.json`).
 3. Explora las estadísticas generales, publicaciones, comentarios y listas de relaciones.
+
+---
+
+## 🧠 Análisis Psicométrico con Google Gemini AI (Big Five / OCEAN)
+
+Puedes analizar el perfil psicológico, estilo comunicativo y rasgos de personalidad a partir del archivo JSON extraído:
+
+```bash
+# Ejecución interactiva (detecta archivos json disponibles y solicita API key si no está en .env)
+python bigfive_analyzer.py
+
+# Analizar un archivo específico con Gemini
+python bigfive_analyzer.py sausage_player_datos.json
+
+# Pasar API Key directamente por terminal
+python bigfive_analyzer.py sausage_player_datos.json --api-key TU_GEMINI_API_KEY
+
+# Forzar modo heurístico local sin conexión a la API
+python bigfive_analyzer.py sausage_player_datos.json --offline
+```
+
+Al ejecutarse genera:
+- Resumen enriquecido en la consola con arquetipo de personalidad, síntesis psicológica y fortalezas conductuales.
+- Reporte web interactivo `{usuario}_bigfive_analisis.html` con gráfico radar de dimensiones OCEAN, avatar del perfil, insignias de motor de análisis y justificaciones con evidencia real.

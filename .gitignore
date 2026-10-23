@@ -15,3 +15,14 @@ ENV/
 # IDEs
 .vscode/
 .idea/
+
+# Documentación
+Documentación Scraping.pdf
+Documentación Scrappy.pdf
+Documentación.docx
+
+# Archivos de datos generados
+*.csv
+*_bigfive_analisis.html
+*_avatar.jpg
+sausage_player_datos.json
