@@ -663,6 +663,97 @@ async def extraer_detalle_post(
         fecha = datos.get("fecha", "")
         caption = datos.get("caption", "")
 
+        # ── Imágenes y multimedia ──
+        media_info = await page.evaluate(
+            r"""(targetUser) => {
+            const container = document.querySelector('article') || document.querySelector('main') || document.body;
+            if (!container) return { tipo: 'image', imagen_url: '', imagenes: [], video_url: '', alt_texto: '' };
+
+            // 1. Video o Reel
+            const video = container.querySelector('video');
+            if (video) {
+                const poster = video.getAttribute('poster') || '';
+                const src = video.getAttribute('src') || video.querySelector('source')?.getAttribute('src') || '';
+                return {
+                    tipo: 'video',
+                    imagen_url: poster,
+                    imagenes: poster ? [poster] : [],
+                    video_url: src,
+                    alt_texto: 'Video / Reel de publicación',
+                    has_next: false,
+                };
+            }
+
+            // 2. Imágenes de la publicación (excluyendo avatares e iconos pequeños)
+            const imgs = Array.from(container.querySelectorAll('img')).filter(img => {
+                if (img.closest('header') && !img.closest("div[role='button']")) return false;
+                const rect = img.getBoundingClientRect();
+                if (rect.width > 0 && rect.width < 120 && rect.height < 120) return false;
+                const src = img.getAttribute('src') || img.src || '';
+                if (!src || !src.startsWith('http') || src.includes('data:image')) return false;
+                const alt = img.getAttribute('alt') || '';
+                if (alt.toLowerCase().includes('avatar') || alt.toLowerCase().includes('profile picture')) return false;
+                return true;
+            });
+
+            const urls = [];
+            let mainAlt = '';
+            for (const img of imgs) {
+                const src = img.getAttribute('src') || img.src || '';
+                if (src && !urls.includes(src)) {
+                    urls.push(src);
+                    if (!mainAlt && img.getAttribute('alt')) {
+                        mainAlt = img.getAttribute('alt');
+                    }
+                }
+            }
+
+            const hasNext = !!container.querySelector("button[aria-label*='Siguiente'], button[aria-label*='Next']");
+            const isCarousel = urls.length > 1 || hasNext;
+
+            return {
+                tipo: isCarousel ? 'carousel' : 'image',
+                imagen_url: urls[0] || '',
+                imagenes: urls,
+                video_url: '',
+                alt_texto: mainAlt,
+                has_next: hasNext,
+            };
+        }""", target_user
+        )
+
+        # Si es carrusel y tiene botón siguiente, avanzar para cargar el resto de imágenes
+        if media_info.get("tipo") == "carousel" and media_info.get("has_next"):
+            imgs_set = list(media_info.get("imagenes", []))
+            for _ in range(8):
+                btn_next = page.locator(
+                    "article button[aria-label*='Siguiente'], article button[aria-label*='Next'], div[role='dialog'] button[aria-label*='Siguiente'], div[role='dialog'] button[aria-label*='Next']"
+                ).first
+                if await btn_next.is_visible(timeout=700):
+                    try:
+                        await btn_next.click()
+                        await page.wait_for_timeout(500)
+                        nuevas_urls = await page.evaluate(r"""() => {
+                            const container = document.querySelector('article') || document.body;
+                            return Array.from(container.querySelectorAll('img'))
+                                .filter(img => {
+                                    const rect = img.getBoundingClientRect();
+                                    if (rect.width > 0 && rect.width < 120) return false;
+                                    const src = img.getAttribute('src') || img.src || '';
+                                    return src.startsWith('http') && !src.includes('data:image');
+                                })
+                                .map(i => i.getAttribute('src') || i.src || '')
+                                .filter(Boolean);
+                        }""")
+                        for u in nuevas_urls:
+                            if u not in imgs_set:
+                                imgs_set.append(u)
+                    except Exception:
+                        break
+                else:
+                    break
+            media_info["imagenes"] = imgs_set
+
         # ── Comentarios condicionales ──
         if scrape_comments:
             comentarios = await extraer_comentarios_post(
@@ -676,9 +767,12 @@ async def extraer_detalle_post(
         menciones = extraer_menciones(caption)
 
         preview = caption[:70].replace("\n", " ") + ("..." if len(caption) > 70 else "")
-        print(f"    Caption: {preview}")
+        tipo_lbl = media_info.get("tipo", "image")
+        num_imgs = len(media_info.get("imagenes", []))
+        media_txt = f"🖼️ {tipo_lbl} ({num_imgs} img)" if media_info.get("imagen_url") else "🖼️ Sin imagen"
         info_cmts = f"💬 {len(comentarios)}" if scrape_comments else "💬 Omitidos"
-        print(f"    ❤️ {likes} | 📅 {fecha[:10] if fecha else 'N/A'} | {info_cmts}")
+        print(f"    Caption: {preview}")
+        print(f"    ❤️ {likes} | 📅 {fecha[:10] if fecha else 'N/A'} | {info_cmts} | {media_txt}")
 
         return {
             "url": url,
@@ -687,6 +781,11 @@ async def extraer_detalle_post(
             "menciones": menciones,
             "likes": likes,
             "fecha": fecha,
+            "tipo_media": media_info.get("tipo", "image"),
+            "imagen_url": media_info.get("imagen_url", ""),
+            "imagenes": media_info.get("imagenes", []),
+            "video_url": media_info.get("video_url", ""),
+            "alt_texto": media_info.get("alt_texto", ""),
             "total_comentarios": len(comentarios),
             "comentarios": comentarios,
         }
@@ -723,22 +822,28 @@ def exportar_csv_publicaciones(publicaciones, filename):
             "indice",
             "url",
             "fecha",
+            "tipo_media",
+            "imagen_url",
             "likes",
             "hashtags",
             "menciones",
             "total_comentarios",
+            "alt_texto",
             "caption",
         ])
         for i, post in enumerate(publicaciones, 1):
             writer.writerow([
                 i,
-                post["url"],
-                post["fecha"],
-                post["likes"],
-                "; ".join(post["hashtags"]),
-                "; ".join(post["menciones"]),
-                post["total_comentarios"],
-                post["caption"],
+                post.get("url", ""),
+                post.get("fecha", ""),
+                post.get("tipo_media", "image"),
+                post.get("imagen_url", ""),
+                post.get("likes", 0),
+                "; ".join(post.get("hashtags", [])),
+                "; ".join(post.get("menciones", [])),
+                post.get("total_comentarios", 0),
+                post.get("alt_texto", ""),
+                post.get("caption", ""),
             ])
     print(f"[EXPORTACIÓN] CSV publicaciones: {filename}")
 
@@ -843,6 +948,36 @@ async def run(config=None):
         print(f"  Seguidos:      {following_num}")
         print(f"  Biografía:     {' | '.join(bio_lines)}")
 
+        # ── 1.1 Foto de perfil (URL y descarga local) ──
+        foto_perfil_url = ""
+        try:
+            foto_perfil_url = await page.evaluate(r"""() => {
+                const header = document.querySelector('header');
+                if (!header) return '';
+                const img = header.querySelector("img[alt*='perfil'], img[alt*='profile'], img");
+                return img ? (img.getAttribute('src') || img.src || '') : '';
+            }""")
+        except Exception:
+            pass
+
+        foto_perfil_local = ""
+        if foto_perfil_url:
+            print(f"\n🖼️  Foto de perfil detectada.")
+            try:
+                avatar_resp = await context.request.get(foto_perfil_url)
+                if avatar_resp.status == 200:
+                    avatar_filename = f"{config.target_user}_avatar.jpg"
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    avatar_path = os.path.join(script_dir, avatar_filename)
+                    with open(avatar_path, "wb") as f:
+                        f.write(await avatar_resp.body())
+                    foto_perfil_local = avatar_filename
+                    print(f"    ✅ Avatar descargado localmente: {avatar_filename}")
+                else:
+                    print(f"    [AVISO] No se pudo descargar avatar (HTTP {avatar_resp.status})")
+            except Exception as err:
+                print(f"    [AVISO] Error al descargar foto de perfil: {err}")
+
         # ── 2. Seguidores y Seguidos (Módulos opcionales) ──
         seguidos = []
         if config.scrape_following:
@@ -915,6 +1050,8 @@ async def run(config=None):
 
         resultado = {
             "perfil": config.target_user,
+            "foto_perfil_url": foto_perfil_url,
+            "foto_perfil_local": foto_perfil_local,
             "biografia": "\n".join(bio_lines),
             "publicaciones_count": posts_num,
             "total_seguidores": followers_num,
