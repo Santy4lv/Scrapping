@@ -16,6 +16,7 @@ interactivo (HTML) con gráficos radar, barras porcentuales y justificaciones
 detalladas basadas en evidencias textuales y métricas de comportamiento.
 """
 
+import argparse
 import os
 import sys
 import json
@@ -24,6 +25,16 @@ import math
 import webbrowser
 from collections import Counter
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
+
+try:
+    from google import genai
+    from google.genai import types
+    HAVE_GEMINI_SDK = True
+except ImportError:
+    HAVE_GEMINI_SDK = False
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -101,10 +112,14 @@ EMOJI_PATTERNS = {
 # ─────────────────────────────────────────────────────────
 
 class BigFiveAnalyzer:
-    def __init__(self, data):
+    def __init__(self, data, api_key=None, model_name="gemini-3.5-flash"):
         self.data = data
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        self.model_name = model_name or "gemini-3.5-flash"
         self.username = data.get("perfil", "usuario_desconocido")
         self.bio = data.get("biografia", "")
+        self.avatar_url = data.get("foto_perfil_url", "")
+        self.avatar_local = data.get("foto_perfil_local", "")
         self.posts = data.get("publicaciones", [])
         self.total_followers = data.get("total_seguidores", 0)
         self.total_following = data.get("total_seguidos", 0)
@@ -156,7 +171,229 @@ class BigFiveAnalyzer:
                     break
         return snippets[:max_snippets]
 
-    def analyze(self):
+    def analyze(self, force_offline=False):
+        """Ejecuta el análisis. Si hay API key disponible y no se fuerza offline, usa Gemini AI."""
+        if not force_offline and self.api_key:
+            try:
+                return self._analyze_gemini(self.api_key)
+            except Exception as e:
+                print(f"\n[AVISO IA] No se pudo completar el análisis con Gemini API ({e}).")
+                print("           Activando motor heurístico léxico de contingencia...\n")
+        elif not self.api_key and not force_offline:
+            print("\n[INFO] No se detectó GEMINI_API_KEY. Usando motor psicométrico léxico offline.\n")
+
+        return self._analyze_heuristic()
+
+    def _analyze_gemini(self, api_key: str):
+        if not HAVE_GEMINI_SDK:
+            raise RuntimeError("El SDK 'google-genai' no está instalado en este entorno de Python.")
+
+        client = genai.Client(api_key=api_key)
+
+        # Preparar contexto enriquecido de las publicaciones
+        posts_context = []
+        for i, p in enumerate(self.posts[:20], 1):
+            comms_sample = [c.get("texto", "") for c in p.get("comentarios", [])[:3] if c.get("texto")]
+            posts_context.append({
+                "post_num": i,
+                "caption": p.get("caption", ""),
+                "hashtags": p.get("hashtags", []),
+                "menciones": p.get("menciones", []),
+                "likes": p.get("likes", 0),
+                "tipo_media": p.get("tipo_media", "image"),
+                "alt_texto": p.get("alt_texto", ""),
+                "comentarios_muestra": comms_sample
+            })
+
+        user_context = {
+            "usuario": self.username,
+            "biografia": self.bio,
+            "total_seguidores": self.total_followers,
+            "total_seguidos": self.total_following,
+            "total_posts_perfil": self.posts_count,
+            "publicaciones": posts_context
+        }
+
+        prompt = f"""
+Actúa como un psicólogo computacional senior y evaluador psicométrico experto en el modelo de los Cinco Grandes Factores de la Personalidad (Big Five / OCEAN):
+1. Apertura a la Experiencia (Openness)
+2. Responsabilidad / Conciencia (Conscientiousness)
+3. Extraversión (Extraversion)
+4. Amabilidad / Afabilidad (Agreeableness)
+5. Estabilidad Emocional vs. Neuroticismo (Neuroticism) - Importante: en neuroticismo un puntaje bajo (ej: 15-35%) indica alta estabilidad emocional y serenidad, mientras que un puntaje alto (ej: 70-95%) denota alta reactividad o vulnerabilidad al estrés.
+
+Analiza minuciosamente los siguientes datos reales extraídos de la cuenta de Instagram de @{self.username}:
+{json.dumps(user_context, ensure_ascii=False, indent=2)}
+
+Directrices de análisis:
+- Basa tu evaluación estricta y genuinamente en el contenido real observado en las publicaciones, tono de captions, temas de interés, bio, humor, léxico y dinámica de interacción social.
+- Para cada uno de los 5 rasgos (openness, conscientiousness, extraversion, agreeableness, neuroticism) debes proporcionar:
+  * "score": un número entero o decimal entre 10 y 98 que represente el porcentaje de presencia de dicho rasgo.
+  * "level": nivel cualitativo ("Muy Alto", "Alto", "Moderado", "Bajo", "Muy Bajo", o en neuroticismo "Muy Estable (Neuroticismo Muy Bajo)", "Estable", "Equilibrado", "Reactivo").
+  * "summary": síntesis ejecutiva clara y concisa (1 o 2 oraciones) específica para este usuario.
+  * "reasons": lista de exactamente 3 razones bien argumentadas con factores conductuales y evidencias contextuales específicas del perfil.
+  * "evidence": lista de 2 a 3 citas textuales reales del usuario (de sus captions o biografía) que ilustren este rasgo. Si el usuario no escribe textos largos, cita frases, emojis o palabras exactas.
+  * "keywords": lista de pares [palabra_clave, frecuencia_estimada] representativas detectadas en su perfil para este rasgo.
+
+Además, proporciona un perfil global:
+- "arquetipo": Título evocador y profesional del arquetipo de personalidad (ej: 'El Estratega Analítico & Conector Social', 'El Creador Lúdico & Afectuoso', 'El Explorador Autónomo & Comunicativo').
+- "sintesis_psicologica": Análisis narrativo psicológico profundo (2 a 3 párrafos de alta calidad) sobre su cosmovisión, estilo de vida, relación interpersonal, manejo emocional y motivación primaria.
+- "estilo_comunicacion": Descripción concisa del tono de comunicación (ej: 'Cálido, espontáneo y lúdico con fuerte apego afectivo').
+- "fortalezas": Lista de 3 o 4 fortalezas conductuales clave.
+- "areas_observacion": Lista de 2 tendencias o áreas de observación conductual.
+
+Responde ÚNICAMENTE en formato JSON con la siguiente estructura exacta:
+{{
+  "arquetipo": string,
+  "sintesis_psicologica": string,
+  "estilo_comunicacion": string,
+  "fortalezas": [string, string, string],
+  "areas_observacion": [string, string],
+  "rasgos": {{
+    "openness": {{
+      "score": number,
+      "level": string,
+      "summary": string,
+      "reasons": [string, string, string],
+      "evidence": [string, string],
+      "keywords": [[string, number]]
+    }},
+    "conscientiousness": {{
+      "score": number,
+      "level": string,
+      "summary": string,
+      "reasons": [string, string, string],
+      "evidence": [string, string],
+      "keywords": [[string, number]]
+    }},
+    "extraversion": {{
+      "score": number,
+      "level": string,
+      "summary": string,
+      "reasons": [string, string, string],
+      "evidence": [string, string],
+      "keywords": [[string, number]]
+    }},
+    "agreeableness": {{
+      "score": number,
+      "level": string,
+      "summary": string,
+      "reasons": [string, string, string],
+      "evidence": [string, string],
+      "keywords": [[string, number]]
+    }},
+    "neuroticism": {{
+      "score": number,
+      "level": string,
+      "summary": string,
+      "reasons": [string, string, string],
+      "evidence": [string, string],
+      "keywords": [[string, number]]
+    }}
+  }}
+}}
+"""
+
+        models_to_try = [
+            self.model_name,
+            "gemini-3.5-flash",
+            "gemini-3.8-flash",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-flash-latest",
+            "gemini-2.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemini-2.5-flash",
+        ]
+        unique_models = []
+        for m in models_to_try:
+            if m and m not in unique_models:
+                unique_models.append(m)
+
+        last_error = None
+        for model in unique_models:
+            try:
+                print(f"🤖 Solicitando análisis psicométrico a Google Gemini ({model})...")
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.2,
+                    )
+                )
+                raw_text = response.text.strip()
+                if raw_text.startswith("```"):
+                    raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text, flags=re.IGNORECASE)
+                    raw_text = re.sub(r"\s*```$", "", raw_text)
+                parsed = json.loads(raw_text)
+                return self._build_gemini_result(parsed, model)
+            except Exception as e:
+                last_error = e
+                print(f"   [AVISO] Intento con {model} no completado: {e}")
+
+        raise last_error or RuntimeError("Todos los intentos con Gemini fallaron.")
+
+    def _build_gemini_result(self, parsed: dict, model_used: str):
+        total_posts_analyzed = len(self.posts)
+        avg_caption_len = (sum(len(c) for c in self.all_captions) / total_posts_analyzed) if total_posts_analyzed else 0
+        ratio_social = (self.total_followers / max(self.total_following, 1))
+
+        trait_names_map = {
+            "openness": ("Apertura a la Experiencia", "Openness"),
+            "conscientiousness": ("Responsabilidad y Tesón", "Conscientiousness"),
+            "extraversion": ("Extraversión", "Extraversion"),
+            "agreeableness": ("Amabilidad y Afabilidad", "Agreeableness"),
+            "neuroticism": ("Estabilidad Emocional vs. Neuroticismo", "Neuroticism"),
+        }
+
+        traits_data = []
+        raw_traits = parsed.get("rasgos", {})
+
+        for t_id, (t_es, t_en) in trait_names_map.items():
+            t_obj = raw_traits.get(t_id, {})
+            score = float(t_obj.get("score", 50.0))
+            score = round(min(max(score, 10.0), 98.0), 1)
+
+            traits_data.append({
+                "id": t_id,
+                "trait_name": t_es,
+                "trait_en": t_en,
+                "score": score,
+                "level": t_obj.get("level", self._get_level(score, inverse=(t_id == "neuroticism"))),
+                "summary": t_obj.get("summary", ""),
+                "reasons": t_obj.get("reasons", []),
+                "keywords": t_obj.get("keywords", []),
+                "evidence": t_obj.get("evidence", []),
+            })
+
+        return {
+            "usuario": self.username,
+            "biografia": self.bio,
+            "foto_perfil_url": self.avatar_url,
+            "foto_perfil_local": self.avatar_local,
+            "motor_analisis": f"Google Gemini ({model_used})",
+            "es_ia": True,
+            "arquetipo": parsed.get("arquetipo", "Perfil Multidimensional"),
+            "sintesis_psicologica": parsed.get("sintesis_psicologica", ""),
+            "estilo_comunicacion": parsed.get("estilo_comunicacion", ""),
+            "fortalezas": parsed.get("fortalezas", []),
+            "areas_observacion": parsed.get("areas_observacion", []),
+            "metricas": {
+                "total_seguidores": self.total_followers,
+                "total_seguidos": self.total_following,
+                "ratio_social": round(ratio_social, 2),
+                "posts_analizados": total_posts_analyzed,
+                "promedio_longitud_caption": int(avg_caption_len),
+                "menciones_totales": len(self.all_mentions),
+                "hashtags_totales": len(self.all_hashtags),
+                "palabras_procesadas": self.total_words
+            },
+            "rasgos": traits_data,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+
+    def _analyze_heuristic(self):
         # Métricas de comportamiento
         total_posts_analyzed = len(self.posts)
         avg_caption_len = (sum(len(c) for c in self.all_captions) / total_posts_analyzed) if total_posts_analyzed else 0
@@ -170,82 +407,73 @@ class BigFiveAnalyzer:
             for em in em_list:
                 emoji_counts[category] += self.full_corpus.count(em)
 
-        # Análisis por cada rasgo
-        results = {}
-        
         # 1. OPENNESS (Apertura)
         open_count, open_matches = self._count_lexicon(LEXICONS["openness"]["keywords"])
         open_density = (open_count / self.total_words) * 1000
-        # Factores: léxico innovador/estratégico, diversidad de hashtags, mención de tecnología/datos
         open_score = 48 + (open_density * 3.4) + (min(hashtags_per_post, 5) * 2.5)
-        if "datos" in self.full_corpus or "sociología" in self.full_corpus:
+        if any(w in self.full_corpus for w in ["datos", "innovación", "creatividad", "arte", "tecnología"]):
             open_score += 6
         open_score = min(max(round(open_score, 1), 15), 96)
         
         open_reasons = [
-            f"Densidad de términos vinculados a estrategia, análisis, innovación y ciencia ({open_count} apariciones clave).",
-            f"Enfoque multidisciplinario y conceptual en publicaciones ('{', '.join([m[0] for m in open_matches[:4]])}').",
-            f"Uso diverso de etiquetas temáticas e interconexión informativa ({len(set(self.all_hashtags))} hashtags distintos)."
+            f"Frecuencia de términos vinculados a innovación, conocimiento y expresión creativa ({open_count} apariciones clave).",
+            f"Diversidad de contenido y amplitud temática en publicaciones ('{', '.join([m[0] for m in open_matches[:4]]) if open_matches else 'intereses generales'}').",
+            f"Uso de etiquetas temáticas e interconexión ({len(set(self.all_hashtags))} hashtags distintos)."
         ]
 
         # 2. CONSCIENTIOUSNESS (Responsabilidad)
         cons_count, cons_matches = self._count_lexicon(LEXICONS["conscientiousness"]["keywords"])
         cons_density = (cons_count / self.total_words) * 1000
-        # Factores: léxico laboral/metas, estructura organizada de captions, bio profesional estructurada
         cons_score = 46 + (cons_density * 3.6) + (min(avg_caption_len / 40, 8))
-        if any(w in self.bio.lower() for w in ["consultora", "guiada", "datos", "socióloga"]):
+        if any(w in self.bio.lower() for w in ["trabajo", "meta", "disciplina", "profesional", "oficial"]):
             cons_score += 7
         cons_score = min(max(round(cons_score, 1), 20), 97)
 
         cons_reasons = [
-            f"Fuerte presencia de vocabulario orientado a disciplina, trabajo, metas y cumplimiento de objetivos ({cons_count} menciones).",
-            f"Biografía con definición clara de roles y orientación metodológica explícita ('política guiada en datos').",
-            f"Narrativa de rutinas estructuradas, puntualidad y balance entre academia, proyectos y responsabilidades diarias."
+            f"Presencia de vocabulario orientado a disciplina, consistencia y propósitos ({cons_count} menciones).",
+            f"Estructura comunicativa ordenada y longitud promedio de descripciones ({int(avg_caption_len)} caracteres por post).",
+            f"Narrativa de constancia y balance entre actividades personales y formativas/laborales."
         ]
 
         # 3. EXTRAVERSION (Extraversión)
         extra_count, extra_matches = self._count_lexicon(LEXICONS["extraversion"]["keywords"])
         extra_density = (extra_count / self.total_words) * 1000
-        # Factores: menciones a otros usuarios (@), signos de exclamación, léxico de comunidad/celebración
         exclamation_count = self.full_corpus.count("!")
         extra_score = 45 + (extra_density * 3.2) + (min(mentions_per_post, 4) * 4.0) + (min(exclamation_count / 10, 5))
         extra_score = min(max(round(extra_score, 1), 18), 95)
 
         extra_reasons = [
-            f"Alta frecuencia de menciones y trabajo en red comunitaria ({len(self.all_mentions)} menciones '@' detectadas).",
-            f"Tono discursivo activo, comunicativo y dirigido a públicos abiertos y colectivos ('{', '.join([m[0] for m in extra_matches[:4]])}').",
-            f"Interacción continua con audiencias y referencias recurrentes a equipos y electores."
+            f"Frecuencia de menciones y apertura hacia redes interpersonales ({len(self.all_mentions)} menciones '@' detectadas).",
+            f"Tono discursivo comunicativo y dirigido hacia audiencias ('{', '.join([m[0] for m in extra_matches[:4]]) if extra_matches else 'lenguaje cercano'}').",
+            f"Ratio social de {ratio_social:.2f} con una comunidad activa de {self.total_followers} seguidores."
         ]
 
         # 4. AGREEABLENESS (Amabilidad / Afabilidad)
         agree_count, agree_matches = self._count_lexicon(LEXICONS["agreeableness"]["keywords"])
         agree_density = (agree_count / self.total_words) * 1000
-        # Factores: gratitud ("gracias", "agradezco", "honor"), valores familiares, emojis cálidos
         agree_score = 42 + (agree_density * 4.2) + (min(emoji_counts["positive"], 10) * 1.5)
-        if any(w in self.bio.lower() for w in ["mamá", "esposa", "amor"]):
+        if any(w in self.bio.lower() for w in ["amor", "familia", "gracias", "amigos"]):
             agree_score += 8
         agree_score = min(max(round(agree_score, 1), 20), 98)
 
         agree_reasons = [
-            f"Expresiones intensas y frecuentes de gratitud, afecto y reconocimiento hacia otros ({agree_count} apariciones).",
-            f"Identidad fuertemente anclada en el cuidado interpersonal y la familia en bio y publicaciones ('mamá', 'esposa', 'amor', 'apoyo').",
-            f"Tono conciliador, colaborativo y con abundancia de elementos de calidez humana y empatía."
+            f"Expresiones de afecto, gratitud o cercanía interpersonal ({agree_count} apariciones léxicas).",
+            f"Presencia de elementos empáticos, calidez emocional y emojis positivos ({emoji_counts['positive']} detectados).",
+            f"Tono constructivo, accesible y sin confrontaciones abiertas en sus publicaciones."
         ]
 
         # 5. NEUROTICISM (Neuroticismo / Reactividad Emocional)
         neuro_count, neuro_matches = self._count_lexicon(LEXICONS["neuroticism"]["keywords"])
         neuro_density = (neuro_count / self.total_words) * 1000
-        # Factores: Si el lenguaje es constructivo y de resiliencia, el neuroticismo se mantiene moderado-bajo
         neuro_score = 25 + (neuro_density * 4.5) + (min(emoji_counts["stress_urgency"], 5) * 3)
-        # Atenuante por estabilidad emocional evidente (gratitud alta y lenguaje resolutivo)
-        if agree_score > 70 and cons_score > 70:
+        if agree_score > 65 and cons_score > 65:
             neuro_score = max(neuro_score - 8, 18)
         neuro_score = min(max(round(neuro_score, 1), 12), 85)
 
         neuro_reasons = [
-            f"Baja frecuencia de términos asociados a quejas, victimización o ansiedad desbordada ({neuro_count} términos de alerta).",
-            f"Los retos y momentos de alta presión se enmarcan como oportunidades de aprendizaje y motivación constructiva.",
-            f"Alta estabilidad emocional reflejada en un balance de serenidad, propósito profesional y contención familiar."
+            f"Baja frecuencia de términos vinculados a estrés, quejas o reactividad ({neuro_count} términos de alerta).",
+            f"Manejo comunicativo sereno, constructivo y enfocado en momentos vitales positivos.",
+            f"Equilibrio emocional observable en el balance entre afabilidad y constancia en sus publicaciones."
         ]
 
         traits_data = [
@@ -255,7 +483,7 @@ class BigFiveAnalyzer:
                 "trait_en": "Openness",
                 "score": open_score,
                 "level": self._get_level(open_score),
-                "summary": "Curiosidad intelectual, pensamiento estratégico, interés en tecnología, datos e innovación política y social.",
+                "summary": "Curiosidad intelectual, apreciación estética y receptividad a nuevas ideas e intereses.",
                 "reasons": open_reasons,
                 "keywords": open_matches[:6],
                 "evidence": self._extract_evidence_snippets(LEXICONS["openness"]["keywords"][:8])
@@ -266,7 +494,7 @@ class BigFiveAnalyzer:
                 "trait_en": "Conscientiousness",
                 "score": cons_score,
                 "level": self._get_level(cons_score),
-                "summary": "Alta autodisciplina, orientación clara a metas tangibles, rigor metodológico y compromiso con deberes laborales y formativos.",
+                "summary": "Autodisciplina, constancia en metas y orientación organizada hacia actividades de su interés.",
                 "reasons": cons_reasons,
                 "keywords": cons_matches[:6],
                 "evidence": self._extract_evidence_snippets(LEXICONS["conscientiousness"]["keywords"][:8])
@@ -277,7 +505,7 @@ class BigFiveAnalyzer:
                 "trait_en": "Extraversion",
                 "score": extra_score,
                 "level": self._get_level(extra_score),
-                "summary": "Sociabilidad alta, capacidad de persuasión en redes, gusto por el trabajo colectivo, visibilidad pública y energía verbal.",
+                "summary": "Sociabilidad, entusiasmo interactivo y energía canalizada hacia su comunidad digital.",
                 "reasons": extra_reasons,
                 "keywords": extra_matches[:6],
                 "evidence": self._extract_evidence_snippets(LEXICONS["extraversion"]["keywords"][:8])
@@ -288,7 +516,7 @@ class BigFiveAnalyzer:
                 "trait_en": "Agreeableness",
                 "score": agree_score,
                 "level": self._get_level(agree_score),
-                "summary": "Empatía profunda, vocación de servicio, alta valoración del entorno familiar y propensión al reconocimiento y la gratitud sincera.",
+                "summary": "Empatía, valoración de vínculos significativos y disposición colaborativa.",
                 "reasons": agree_reasons,
                 "keywords": agree_matches[:6],
                 "evidence": self._extract_evidence_snippets(LEXICONS["agreeableness"]["keywords"][:8])
@@ -299,16 +527,48 @@ class BigFiveAnalyzer:
                 "trait_en": "Neuroticism",
                 "score": neuro_score,
                 "level": self._get_level(neuro_score, inverse=True),
-                "summary": "Puntuación baja en neuroticismo indica alta estabilidad emocional, temple frente a desafíos de campaña y resiliencia ante el estrés.",
+                "summary": "Nivel bajo de neuroticismo refleja alta estabilidad, compostura y control afectivo.",
                 "reasons": neuro_reasons,
                 "keywords": neuro_matches[:6],
                 "evidence": self._extract_evidence_snippets(LEXICONS["neuroticism"]["keywords"][:6])
             }
         ]
 
+        # Determinar arquetipo heurístico
+        if agree_score >= 65 and extra_score >= 60:
+            arquetipo = "El Conector Social Empático"
+        elif open_score >= 65 and cons_score >= 60:
+            arquetipo = "El Estratega Analítico & Creador"
+        elif cons_score >= 65:
+            arquetipo = "El Realizador Disciplinado"
+        elif agree_score >= 65:
+            arquetipo = "El Cuidador Afectuoso & Colaborador"
+        else:
+            arquetipo = "El Observador Autónomo & Pragmático"
+
         return {
             "usuario": self.username,
             "biografia": self.bio,
+            "foto_perfil_url": self.avatar_url,
+            "foto_perfil_local": self.avatar_local,
+            "motor_analisis": "Motor Heurístico Léxico (Offline)",
+            "es_ia": False,
+            "arquetipo": arquetipo,
+            "sintesis_psicologica": (
+                f"El perfil digital de @{self.username} proyecta una personalidad orientada a "
+                f"{'vínculos humanos cercanos y calidez afectiva' if agree_score > 60 else 'intereses temáticos focalizados y comunicación directa'}. "
+                f"Presenta un nivel de responsabilidad del {cons_score}% y una estabilidad emocional favorable con {neuro_score}% en reactividad al estrés."
+            ),
+            "estilo_comunicacion": "Expresivo y selectivo, centrado en vivencias personales.",
+            "fortalezas": [
+                "Estabilidad emocional y control reflexivo",
+                "Capacidad de conexión con círculos afines",
+                "Constancia en el mensaje y estilo propio"
+            ],
+            "areas_observacion": [
+                "Exploración de mayor variedad de temas conceptuales",
+                "Ampliación del alcance interactivo con otras comunidades"
+            ],
             "metricas": {
                 "total_seguidores": self.total_followers,
                 "total_seguidos": self.total_following,
@@ -346,6 +606,28 @@ def generar_reporte_html(resultado, output_filename):
     u = resultado["usuario"]
     m = resultado["metricas"]
     rasgos = resultado["rasgos"]
+
+    avatar_src = resultado.get("foto_perfil_local") or resultado.get("foto_perfil_url")
+    if avatar_src:
+        avatar_html = f'<img src="{avatar_src}" alt="{u}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;" onerror="this.onerror=null; this.parentElement.innerText=\'{u[:2].upper()}\';">'
+    else:
+        avatar_html = u[:2].upper()
+
+    es_ia = resultado.get("es_ia", False)
+    motor = resultado.get("motor_analisis", "Análisis Heurístico")
+    if es_ia:
+        badge_html = f'<div class="engine-badge ai-badge"><span class="badge-sparkle">✨</span> {motor}</div>'
+    else:
+        badge_html = f'<div class="engine-badge offline-badge"><span>⚙️</span> {motor}</div>'
+
+    arquetipo = resultado.get("arquetipo", "Perfil Multidimensional")
+    sintesis = resultado.get("sintesis_psicologica", "")
+    estilo_com = resultado.get("estilo_comunicacion", "")
+    fortalezas = resultado.get("fortalezas", [])
+    observaciones = resultado.get("areas_observacion", [])
+
+    fortalezas_html = "".join([f"<li><span class='bullet-icon text-green'>✓</span><span>{f}</span></li>" for f in fortalezas]) if fortalezas else "<li>Análisis general en progreso</li>"
+    observaciones_html = "".join([f"<li><span class='bullet-icon text-amber'>•</span><span>{o}</span></li>" for o in observaciones]) if observaciones else "<li>Sin observaciones críticas</li>"
 
     # Preparar datos para Chart.js
     labels_chart = [r["trait_name"] for r in rasgos]
@@ -823,6 +1105,121 @@ def generar_reporte_html(resultado, output_filename):
             margin-top: 3px;
         }}
 
+        .engine-badge {{
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11.5px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+        }}
+        .ai-badge {{
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(6, 182, 212, 0.2));
+            color: #c084fc;
+            border: 1px solid rgba(192, 132, 252, 0.35);
+            box-shadow: 0 0 15px rgba(139, 92, 246, 0.2);
+        }}
+        .offline-badge {{
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }}
+        .synthesis-card {{
+            padding: 26px 30px;
+            margin-bottom: 24px;
+            position: relative;
+            overflow: hidden;
+        }}
+        .synthesis-card::before {{
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 3px;
+            background: linear-gradient(90deg, #8b5cf6, #06b6d4, #10b981);
+        }}
+        .synthesis-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 14px;
+            margin-bottom: 16px;
+        }}
+        .archetype-tag {{
+            font-size: 11.5px;
+            font-weight: 700;
+            color: #38bdf8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-bottom: 4px;
+        }}
+        .archetype-title {{
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: -0.4px;
+            background: linear-gradient(135deg, #ffffff, #cbd5e1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }}
+        .comm-style-tag {{
+            font-size: 12.5px;
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.04);
+            padding: 8px 14px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+        }}
+        .synthesis-text {{
+            font-size: 14.5px;
+            line-height: 1.7;
+            color: #cbd5e1;
+            margin-bottom: 20px;
+        }}
+        .insights-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+        }}
+        .insight-box {{
+            padding: 16px 20px;
+            border-radius: 12px;
+            background: rgba(0, 0, 0, 0.2);
+        }}
+        .insight-title {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }}
+        .text-green {{ color: #34d399; }}
+        .text-amber {{ color: #fbbf24; }}
+        .insight-list {{
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }}
+        .insight-list li {{
+            font-size: 13px;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            line-height: 1.45;
+        }}
+        .bullet-icon {{
+            font-weight: 800;
+            flex-shrink: 0;
+        }}
+
         .footer {{
             margin-top: 40px;
             text-align: center;
@@ -839,9 +1236,12 @@ def generar_reporte_html(resultado, output_filename):
         <!-- Header -->
         <header class="header glass">
             <div class="user-info">
-                <div class="avatar-box">{u[:2].upper()}</div>
+                <div class="avatar-box" style="overflow: hidden; padding: 0;">{avatar_html}</div>
                 <div>
-                    <h1 class="profile-title">@{u}</h1>
+                    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                        <h1 class="profile-title">@{u}</h1>
+                        {badge_html}
+                    </div>
                     <p class="profile-bio">{resultado['biografia'].replace(chr(10), ' | ') if resultado['biografia'] else 'Sin biografía disponible'}</p>
                 </div>
             </div>
@@ -852,6 +1252,43 @@ def generar_reporte_html(resultado, output_filename):
                 </button>
             </div>
         </header>
+
+        <!-- Executive Psychological Synthesis -->
+        <div class="synthesis-card glass">
+            <div class="synthesis-header">
+                <div>
+                    <div class="archetype-tag">
+                        <span>✨</span> Arquetipo de Personalidad
+                    </div>
+                    <h2 class="archetype-title">{arquetipo}</h2>
+                </div>
+                {f'<div class="comm-style-tag"><strong>Estilo de Comunicación:</strong> {estilo_com}</div>' if estilo_com else ''}
+            </div>
+            <div class="synthesis-body">
+                <div class="section-subtitle">Síntesis Psicológica Integral:</div>
+                <p class="synthesis-text">{sintesis.replace(chr(10), '<br><br>')}</p>
+            </div>
+            <div class="insights-grid">
+                <div class="insight-box glass">
+                    <div class="insight-title text-green">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        Fortalezas Conductuales Clave
+                    </div>
+                    <ul class="insight-list">
+                        {fortalezas_html}
+                    </ul>
+                </div>
+                <div class="insight-box glass">
+                    <div class="insight-title text-amber">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                        Áreas de Observación & Dinámica
+                    </div>
+                    <ul class="insight-list">
+                        {observaciones_html}
+                    </ul>
+                </div>
+            </div>
+        </div>
 
         <!-- Metrics Grid -->
         <div class="metrics-grid">
@@ -1020,13 +1457,37 @@ def generar_reporte_html(resultado, output_filename):
 def imprimir_resumen_terminal(resultado):
     u = resultado["usuario"]
     m = resultado["metricas"]
-    print("\n" + "=" * 60)
-    print(f" 🧠 REPORTE PSICOMÉTRICO BIG FIVE (OCEAN) · @{u}")
-    print("=" * 60)
-    print(f" Publicaciones analizadas: {m['posts_analizados']} | Palabras: {m['palabras_procesadas']}")
-    print(f" Seguidores: {m['total_seguidores']} | Seguidos: {m['total_seguidos']} | Menciones: {m['menciones_totales']}")
-    print("-" * 60)
+    motor = resultado.get("motor_analisis", "Heurístico")
+    arquetipo = resultado.get("arquetipo", "Perfil Multidimensional")
+    estilo = resultado.get("estilo_comunicacion", "")
+    sintesis = resultado.get("sintesis_psicologica", "")
+    fortalezas = resultado.get("fortalezas", [])
 
+    print("\n" + "=" * 65)
+    print(f" 🧠 REPORTE PSICOMÉTRICO BIG FIVE (OCEAN) · @{u}")
+    print(f" ⚙️  Motor: {motor}")
+    print("=" * 65)
+    print(f" ✨ Arquetipo: {arquetipo}")
+    if estilo:
+        print(f" 🗣️  Estilo: {estilo}")
+    print(f" 📊 Posts analizados: {m['posts_analizados']} | Palabras: {m['palabras_procesadas']}")
+    print(f" 👥 Seguidores: {m['total_seguidores']:,} | Seguidos: {m['total_seguidos']:,} | Menciones: {m['menciones_totales']}")
+    print("-" * 65)
+
+    if sintesis:
+        print("\n📝 SÍNTESIS PSICOLÓGICA:")
+        for par in sintesis.split("\n"):
+            if par.strip():
+                print(f"   {par.strip()}")
+        print("-" * 65)
+
+    if fortalezas:
+        print("\n🌟 FORTALEZAS CONDUCTUALES CLAVE:")
+        for f in fortalezas:
+            print(f"   ✓ {f}")
+        print("-" * 65)
+
+    print("\nDIMENSIONES BIG FIVE (OCEAN):")
     for r in resultado["rasgos"]:
         barra_len = int(r["score"] / 5)
         barra = "█" * barra_len + "░" * (20 - barra_len)
@@ -1036,7 +1497,11 @@ def imprimir_resumen_terminal(resultado):
         print("      Factores clave:")
         for reason in r["reasons"]:
             print(f"       • {reason}")
-    print("\n" + "=" * 60)
+        if r.get("evidence"):
+            print("      Evidencias extraídas:")
+            for ev in r["evidence"][:2]:
+                print(f"       💬 \"{ev}\"")
+    print("\n" + "=" * 65)
 
 
 # ─────────────────────────────────────────────────────────
@@ -1044,15 +1509,18 @@ def imprimir_resumen_terminal(resultado):
 # ─────────────────────────────────────────────────────────
 
 def main():
-    # Identificar archivo json a analizar
-    target_file = None
-    if len(sys.argv) > 1:
-        target_file = sys.argv[1]
-    else:
-        # Buscar archivos *_datos.json en el directorio actual
+    parser = argparse.ArgumentParser(description="Analizador Psicométrico Big Five (OCEAN) para Instagram")
+    parser.add_argument("archivo", nargs="?", default=None, help="Ruta al archivo JSON de datos extraídos")
+    parser.add_argument("--api-key", default=None, help="Google Gemini API Key (o definir GEMINI_API_KEY en .env)")
+    parser.add_argument("--model", default="gemini-3.5-flash", help="Modelo de Gemini (por defecto: gemini-3.5-flash)")
+    parser.add_argument("--offline", action="store_true", help="Forzar análisis léxico heurístico offline sin usar la API de Gemini")
+    args = parser.parse_args()
+
+    target_file = args.archivo
+    if not target_file:
         candidatos = [f for f in os.listdir(".") if f.endswith("_datos.json") and os.path.isfile(f)]
         if candidatos:
-            print("Archivos de datos encontrados:")
+            print("\nArchivos de datos encontrados:")
             for idx, c in enumerate(candidatos, 1):
                 print(f"  [{idx}] {c}")
             print(f"  [0] Ingresar ruta manualmente")
@@ -1076,12 +1544,33 @@ def main():
         print(f"\n[ERROR] El archivo '{target_file}' no existe.")
         sys.exit(1)
 
+    api_key = args.api_key or os.getenv("GEMINI_API_KEY")
+
+    if not args.offline and not api_key:
+        print("\n" + "─" * 65)
+        print("💡 Puedes analizar este perfil con Inteligencia Artificial (Google Gemini)")
+        print("   o presionar Enter para usar el motor psicométrico léxico local (offline).")
+        print("─" * 65)
+        key_input = input("🔑 Ingresa tu Gemini API Key (Enter para offline): ").strip()
+        if key_input:
+            api_key = key_input
+            try:
+                guardar = input("💾 ¿Deseas guardar la API Key en tu archivo .env? [s/N]: ").strip().lower()
+                if guardar in ["s", "si", "y", "yes"]:
+                    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+                    line_to_add = f"\nGEMINI_API_KEY={api_key}\n"
+                    with open(env_path, "a", encoding="utf-8") as env_f:
+                        env_f.write(line_to_add)
+                    print(f"✅ API Key guardada exitosamente en '{env_path}'.")
+            except Exception as e:
+                print(f"[AVISO] No se pudo escribir en .env: {e}")
+
     print(f"\n📂 Cargando datos desde '{target_file}'...")
     with open(target_file, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    analyzer = BigFiveAnalyzer(data)
-    resultado = analyzer.analyze()
+    analyzer = BigFiveAnalyzer(data, api_key=api_key, model_name=args.model)
+    resultado = analyzer.analyze(force_offline=args.offline)
 
     imprimir_resumen_terminal(resultado)
 
@@ -1090,7 +1579,6 @@ def main():
     print(f"\n✅ Reporte visual generado exitosamente:")
     print(f"   {abs_path}")
 
-    # Abrir automáticamente en el navegador
     try:
         webbrowser.open(f"file://{abs_path}")
         print("   🌐 Abriendo reporte en tu navegador predeterminado...")
