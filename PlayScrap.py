@@ -359,33 +359,34 @@ async def extraer_relaciones(page, tipo="following", meta=0, limit=0):
 # Recolección de URLs de publicaciones (grid del perfil)
 # ─────────────────────────────────────────────────────────
 async def recolectar_urls_posts(page, meta_posts=0, max_posts=0):
-    """Scrollea la página del perfil para cargar y recoger los enlaces de cada post."""
+    """Scrollea la página del perfil para cargar y recoger los enlaces de cada post en orden cronológico real."""
     print("\n==========================================")
     print(" Recolectando URLs de publicaciones...")
     print("==========================================")
 
-    urls = set()
+    ordered_urls = []
     intentos = 0
     MAX_INTENTOS = 4
     limite = max_posts if max_posts > 0 else meta_posts
 
     while intentos < MAX_INTENTOS:
-        nuevas = set(
-            await page.locator("a[href*='/p/'], a[href*='/reel/']").evaluate_all(
-                "els => els.map(e => e.getAttribute('href')).filter(Boolean)"
-            )
+        nuevas = await page.locator("a[href*='/p/'], a[href*='/reel/']").evaluate_all(
+            "els => els.map(e => e.getAttribute('href')).filter(Boolean)"
         )
 
-        prev = len(urls)
-        urls.update(nuevas)
+        prev_count = len(ordered_urls)
+        for u in nuevas:
+            clean_u = u.split("?")[0].rstrip("/") + "/"
+            if clean_u not in ordered_urls:
+                ordered_urls.append(clean_u)
 
-        if limite > 0 and len(urls) >= limite:
-            print(f"[GRID] Meta alcanzada: {len(urls)}/{limite}")
+        if limite > 0 and len(ordered_urls) >= limite:
+            print(f"[GRID] Meta alcanzada: {len(ordered_urls)}/{limite}")
             break
 
-        if len(urls) > prev:
+        if len(ordered_urls) > prev_count:
             intentos = 0
-            print(f"[GRID] {len(urls)} publicaciones encontradas...")
+            print(f"[GRID] {len(ordered_urls)} publicaciones encontradas...")
         else:
             intentos += 1
             print(f"  Sin posts nuevos ({intentos}/{MAX_INTENTOS})...")
@@ -393,12 +394,11 @@ async def recolectar_urls_posts(page, meta_posts=0, max_posts=0):
         await page.evaluate("window.scrollBy(0, window.innerHeight * 2)")
         await pausa_humana(page, 1.5, 2.5)
 
-    result = sorted(list(urls))
     if max_posts > 0:
-        result = result[:max_posts]
+        ordered_urls = ordered_urls[:max_posts]
 
-    print(f"[GRID] Total URLs recolectadas: {len(result)}")
-    return result
+    print(f"[GRID] Total URLs recolectadas en orden de perfil: {len(ordered_urls)}")
+    return ordered_urls
 
 
 # ─────────────────────────────────────────────────────────
@@ -667,7 +667,7 @@ async def extraer_detalle_post(
         media_info = await page.evaluate(
             r"""(targetUser) => {
             const container = document.querySelector('article') || document.querySelector('main') || document.body;
-            if (!container) return { tipo: 'image', imagen_url: '', imagenes: [], video_url: '', alt_texto: '', has_next: false };
+            if (!container) return { tipo: 'image', imagen_url: '', imagenes: [], video_url: '', alt_texto: '', expected_slides: 0, has_next: false };
 
             // 1. Video o Reel (verificar que no sea de la sección de recomendaciones)
             const video = container.querySelector('video');
@@ -680,6 +680,7 @@ async def extraer_detalle_post(
                     imagenes: poster ? [poster] : [],
                     video_url: src,
                     alt_texto: 'Video / Reel de publicación',
+                    expected_slides: 1,
                     has_next: false,
                 };
             }
@@ -702,7 +703,13 @@ async def extraer_detalle_post(
                 return true;
             });
 
-            // 3. Detectar si es un carrusel REAL (slide container <ul> o botón Siguiente exclusivo de medios)
+            // 3. Indicador nativo de carrusel (dots) y contenedor de diapositivas
+            const dotContainer = Array.from(container.querySelectorAll('div')).find(d => {
+                const ch = Array.from(d.children);
+                return ch.length >= 2 && ch.length <= 10 && ch.every(c => c.tagName === 'DIV' && c.clientWidth < 15 && c.clientHeight < 15);
+            });
+            const expected_slides = dotContainer ? dotContainer.children.length : 0;
+
             const carouselUl = Array.from(container.querySelectorAll('ul')).find(ul => 
                 !ul.closest('a[href*="/p/"]') && ul.querySelectorAll('li img').length > 0
             );
@@ -712,7 +719,7 @@ async def extraer_detalle_post(
                 return /^(Siguiente|Next)$/i.test(label) && !btn.closest('a[href*="/p/"]');
             });
 
-            const isCarousel = !!carouselUl || !!nextBtn;
+            const isCarousel = expected_slides > 1 || !!carouselUl || !!nextBtn;
 
             const urls = [];
             let mainAlt = '';
@@ -732,17 +739,27 @@ async def extraer_detalle_post(
                 imagenes: urls,
                 video_url: '',
                 alt_texto: mainAlt,
+                expected_slides: expected_slides,
                 has_next: !!nextBtn,
             };
         }""", target_user
         )
 
-        # Si es carrusel real y tiene botón siguiente, avanzar para cargar todas las diapositivas
+        # Si es carrusel real y tiene botón siguiente, avanzar hasta el conteo exacto de fotos
         if media_info.get("tipo") == "carousel" and media_info.get("has_next"):
             imgs_set = list(media_info.get("imagenes", []))
-            for _ in range(9):
+            exp_slides = media_info.get("expected_slides", 0)
+            base_url = url.split("?")[0]
+            max_clicks = exp_slides if exp_slides > 0 else 10
+
+            for _ in range(max_clicks):
+                if exp_slides > 0 and len(imgs_set) >= exp_slides:
+                    break
                 btn_next = page.locator("button[aria-label='Siguiente'], button[aria-label='Next']").first
                 if await btn_next.is_visible(timeout=800):
+                    # Salvaguarda: si la URL base cambió, no interactuar más
+                    if page.url.split("?")[0] != base_url:
+                        break
                     try:
                         await btn_next.click()
                         await page.wait_for_timeout(600)
@@ -763,10 +780,15 @@ async def extraer_detalle_post(
                         for u in nuevas_urls:
                             if u not in imgs_set:
                                 imgs_set.append(u)
+                                if exp_slides > 0 and len(imgs_set) >= exp_slides:
+                                    break
                     except Exception:
                         break
                 else:
                     break
+
+            if exp_slides > 0 and len(imgs_set) > exp_slides:
+                imgs_set = imgs_set[:exp_slides]
             media_info["imagenes"] = imgs_set
 
         # ── Comentarios condicionales ──
