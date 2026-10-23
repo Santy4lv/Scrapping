@@ -20,11 +20,8 @@ Incluye un scraper automatizado con **Playwright** que utiliza autenticación me
   - URLs de posts, descripciones completas, conteo de likes, hashtags (#) y menciones (@).
 - **Extracción de Comentarios:**
   - Recolección de comentarios asociados a cada publicación (usuario + texto).
-- **Múltiples formatos de exportación:**
-  - `{usuario}_datos.json` (Estructura jerárquica completa con metadatos multimedia para el dashboard).
-  - `{usuario}_relaciones.csv` (Seguidores y seguidos).
-  - `{usuario}_publicaciones.csv` (Publicaciones, enlaces de imágenes y métricas).
-  - `{usuario}_comentarios.csv` (Comentarios por publicación).
+- **Exportación Integral de Datos:**
+  - `{usuario}_datos.json` (Estructura jerárquica unificada y completa con metadatos de perfil, relaciones, publicaciones, imágenes/carruseles y comentarios para el dashboard y análisis).
 - **Visualizador Web Interactivo (`dashboard.html`):**
   - Interfaz moderna con modo oscuro y diseño Glassmorphism.
   - Avatar real del usuario en la cabecera.
@@ -105,7 +102,7 @@ python PlayScrap.py --user otro_usuario --headless --posts-only
 python PlayScrap.py --help
 ```
 
-Al terminar, se generarán automáticamente los archivos JSON y CSV correspondientes a los módulos activos.
+Al terminar, se generará automáticamente el archivo `{usuario}_datos.json` correspondiente a los módulos activos.
 
 ---
 

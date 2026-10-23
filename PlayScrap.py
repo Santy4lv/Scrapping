@@ -1,6 +1,5 @@
 import argparse
 import asyncio
-import csv
 from dataclasses import dataclass, asdict
 import json
 import os
@@ -841,58 +840,6 @@ def exportar_json(resultado, filename):
     print(f"[EXPORTACIÓN] JSON generado: {filename}")
 
 
-def exportar_csv_relaciones(seguidos, seguidores, filename):
-    with open(filename, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["tipo", "username"])
-        for u in seguidos:
-            writer.writerow(["seguido", u])
-        for u in seguidores:
-            writer.writerow(["seguidor", u])
-    print(f"[EXPORTACIÓN] CSV relaciones: {filename}")
-
-
-def exportar_csv_publicaciones(publicaciones, filename):
-    with open(filename, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            "indice",
-            "url",
-            "fecha",
-            "tipo_media",
-            "imagen_url",
-            "likes",
-            "hashtags",
-            "menciones",
-            "total_comentarios",
-            "alt_texto",
-            "caption",
-        ])
-        for i, post in enumerate(publicaciones, 1):
-            writer.writerow([
-                i,
-                post.get("url", ""),
-                post.get("fecha", ""),
-                post.get("tipo_media", "image"),
-                post.get("imagen_url", ""),
-                post.get("likes", 0),
-                "; ".join(post.get("hashtags", [])),
-                "; ".join(post.get("menciones", [])),
-                post.get("total_comentarios", 0),
-                post.get("alt_texto", ""),
-                post.get("caption", ""),
-            ])
-    print(f"[EXPORTACIÓN] CSV publicaciones: {filename}")
-
-
-def exportar_csv_comentarios(publicaciones, filename):
-    with open(filename, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["post_indice", "post_url", "usuario", "comentario"])
-        for i, post in enumerate(publicaciones, 1):
-            for com in post.get("comentarios", []):
-                writer.writerow([i, post["url"], com["usuario"], com["texto"]])
-    print(f"[EXPORTACIÓN] CSV comentarios: {filename}")
 
 
 # ─────────────────────────────────────────────────────────
@@ -1103,14 +1050,6 @@ async def run(config=None):
         }
 
         exportar_json(resultado, f"{config.target_user}_datos.json")
-
-        if config.scrape_following or config.scrape_followers:
-            exportar_csv_relaciones(seguidos, seguidores, f"{config.target_user}_relaciones.csv")
-
-        if config.scrape_posts and len(publicaciones) > 0:
-            exportar_csv_publicaciones(publicaciones, f"{config.target_user}_publicaciones.csv")
-            if config.scrape_comments and any(p.get("comentarios") for p in publicaciones):
-                exportar_csv_comentarios(publicaciones, f"{config.target_user}_comentarios.csv")
 
         await browser.close()
 
