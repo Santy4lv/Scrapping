@@ -1,6 +1,5 @@
 import argparse
 import asyncio
-import csv
 from dataclasses import dataclass, asdict
 import json
 import os
@@ -359,33 +358,34 @@ async def extraer_relaciones(page, tipo="following", meta=0, limit=0):
 # Recolección de URLs de publicaciones (grid del perfil)
 # ─────────────────────────────────────────────────────────
 async def recolectar_urls_posts(page, meta_posts=0, max_posts=0):
-    """Scrollea la página del perfil para cargar y recoger los enlaces de cada post."""
+    """Scrollea la página del perfil para cargar y recoger los enlaces de cada post en orden cronológico real."""
     print("\n==========================================")
     print(" Recolectando URLs de publicaciones...")
     print("==========================================")
 
-    urls = set()
+    ordered_urls = []
     intentos = 0
     MAX_INTENTOS = 4
     limite = max_posts if max_posts > 0 else meta_posts
 
     while intentos < MAX_INTENTOS:
-        nuevas = set(
-            await page.locator("a[href*='/p/'], a[href*='/reel/']").evaluate_all(
-                "els => els.map(e => e.getAttribute('href')).filter(Boolean)"
-            )
+        nuevas = await page.locator("a[href*='/p/'], a[href*='/reel/']").evaluate_all(
+            "els => els.map(e => e.getAttribute('href')).filter(Boolean)"
         )
 
-        prev = len(urls)
-        urls.update(nuevas)
+        prev_count = len(ordered_urls)
+        for u in nuevas:
+            clean_u = u.split("?")[0].rstrip("/") + "/"
+            if clean_u not in ordered_urls:
+                ordered_urls.append(clean_u)
 
-        if limite > 0 and len(urls) >= limite:
-            print(f"[GRID] Meta alcanzada: {len(urls)}/{limite}")
+        if limite > 0 and len(ordered_urls) >= limite:
+            print(f"[GRID] Meta alcanzada: {len(ordered_urls)}/{limite}")
             break
 
-        if len(urls) > prev:
+        if len(ordered_urls) > prev_count:
             intentos = 0
-            print(f"[GRID] {len(urls)} publicaciones encontradas...")
+            print(f"[GRID] {len(ordered_urls)} publicaciones encontradas...")
         else:
             intentos += 1
             print(f"  Sin posts nuevos ({intentos}/{MAX_INTENTOS})...")
@@ -393,12 +393,11 @@ async def recolectar_urls_posts(page, meta_posts=0, max_posts=0):
         await page.evaluate("window.scrollBy(0, window.innerHeight * 2)")
         await pausa_humana(page, 1.5, 2.5)
 
-    result = sorted(list(urls))
     if max_posts > 0:
-        result = result[:max_posts]
+        ordered_urls = ordered_urls[:max_posts]
 
-    print(f"[GRID] Total URLs recolectadas: {len(result)}")
-    return result
+    print(f"[GRID] Total URLs recolectadas en orden de perfil: {len(ordered_urls)}")
+    return ordered_urls
 
 
 # ─────────────────────────────────────────────────────────
@@ -663,6 +662,134 @@ async def extraer_detalle_post(
         fecha = datos.get("fecha", "")
         caption = datos.get("caption", "")
 
+        # ── Imágenes y multimedia ──
+        media_info = await page.evaluate(
+            r"""(targetUser) => {
+            const container = document.querySelector('article') || document.querySelector('main') || document.body;
+            if (!container) return { tipo: 'image', imagen_url: '', imagenes: [], video_url: '', alt_texto: '', expected_slides: 0, has_next: false };
+
+            // 1. Video o Reel (verificar que no sea de la sección de recomendaciones)
+            const video = container.querySelector('video');
+            if (video && !video.closest('a[href*="/p/"], a[href*="/reel/"]')) {
+                const poster = video.getAttribute('poster') || '';
+                const src = video.getAttribute('src') || video.querySelector('source')?.getAttribute('src') || '';
+                return {
+                    tipo: 'video',
+                    imagen_url: poster,
+                    imagenes: poster ? [poster] : [],
+                    video_url: src,
+                    alt_texto: 'Video / Reel de publicación',
+                    expected_slides: 1,
+                    has_next: false,
+                };
+            }
+
+            // 2. Extraer imágenes del post actual EXCLUYENDO 'Más publicaciones' y avatares
+            const imgs = Array.from(container.querySelectorAll('img')).filter(img => {
+                // Descartar imágenes de 'Más publicaciones de...' (vienen dentro de links a otros posts)
+                if (img.closest('a[href*="/p/"], a[href*="/reel/"]')) return false;
+
+                // Descartar cabecera y avatares
+                if (img.closest('header')) return false;
+                const rect = img.getBoundingClientRect();
+                if (rect.width > 0 && (rect.width < 120 || rect.height < 120)) return false;
+
+                const alt = (img.getAttribute('alt') || '').toLowerCase();
+                if (alt.includes('avatar') || alt.includes('profile picture') || alt.includes('foto del perfil')) return false;
+
+                const src = img.getAttribute('src') || img.src || '';
+                if (!src || !src.startsWith('http') || src.includes('data:image')) return false;
+                return true;
+            });
+
+            // 3. Indicador nativo de carrusel (dots) y contenedor de diapositivas
+            const dotContainer = Array.from(container.querySelectorAll('div')).find(d => {
+                const ch = Array.from(d.children);
+                return ch.length >= 2 && ch.length <= 10 && ch.every(c => c.tagName === 'DIV' && c.clientWidth < 15 && c.clientHeight < 15);
+            });
+            const expected_slides = dotContainer ? dotContainer.children.length : 0;
+
+            const carouselUl = Array.from(container.querySelectorAll('ul')).find(ul => 
+                !ul.closest('a[href*="/p/"]') && ul.querySelectorAll('li img').length > 0
+            );
+
+            const nextBtn = Array.from(container.querySelectorAll('button')).find(btn => {
+                const label = (btn.getAttribute('aria-label') || '').trim();
+                return /^(Siguiente|Next)$/i.test(label) && !btn.closest('a[href*="/p/"]');
+            });
+
+            const isCarousel = expected_slides > 1 || !!carouselUl || !!nextBtn;
+
+            const urls = [];
+            let mainAlt = '';
+            for (const img of imgs) {
+                const src = img.getAttribute('src') || img.src || '';
+                if (src && !urls.includes(src)) {
+                    urls.push(src);
+                    if (!mainAlt && img.getAttribute('alt')) {
+                        mainAlt = img.getAttribute('alt');
+                    }
+                }
+            }
+
+            return {
+                tipo: isCarousel ? 'carousel' : 'image',
+                imagen_url: urls[0] || '',
+                imagenes: urls,
+                video_url: '',
+                alt_texto: mainAlt,
+                expected_slides: expected_slides,
+                has_next: !!nextBtn,
+            };
+        }""", target_user
+        )
+
+        # Si es carrusel real y tiene botón siguiente, avanzar hasta el conteo exacto de fotos
+        if media_info.get("tipo") == "carousel" and media_info.get("has_next"):
+            imgs_set = list(media_info.get("imagenes", []))
+            exp_slides = media_info.get("expected_slides", 0)
+            base_url = url.split("?")[0]
+            max_clicks = exp_slides if exp_slides > 0 else 10
+
+            for _ in range(max_clicks):
+                if exp_slides > 0 and len(imgs_set) >= exp_slides:
+                    break
+                btn_next = page.locator("button[aria-label='Siguiente'], button[aria-label='Next']").first
+                if await btn_next.is_visible(timeout=800):
+                    # Salvaguarda: si la URL base cambió, no interactuar más
+                    if page.url.split("?")[0] != base_url:
+                        break
+                    try:
+                        await btn_next.click()
+                        await page.wait_for_timeout(600)
+                        nuevas_urls = await page.evaluate(r"""() => {
+                            const container = document.querySelector('article') || document.querySelector('main') || document.body;
+                            return Array.from(container.querySelectorAll('img'))
+                                .filter(img => {
+                                    if (img.closest('a[href*="/p/"], a[href*="/reel/"]')) return false;
+                                    if (img.closest('header')) return false;
+                                    const rect = img.getBoundingClientRect();
+                                    if (rect.width > 0 && (rect.width < 120 || rect.height < 120)) return false;
+                                    const src = img.getAttribute('src') || img.src || '';
+                                    return src.startsWith('http') && !src.includes('data:image');
+                                })
+                                .map(i => i.getAttribute('src') || i.src || '')
+                                .filter(Boolean);
+                        }""")
+                        for u in nuevas_urls:
+                            if u not in imgs_set:
+                                imgs_set.append(u)
+                                if exp_slides > 0 and len(imgs_set) >= exp_slides:
+                                    break
+                    except Exception:
+                        break
+                else:
+                    break
+
+            if exp_slides > 0 and len(imgs_set) > exp_slides:
+                imgs_set = imgs_set[:exp_slides]
+            media_info["imagenes"] = imgs_set
+
         # ── Comentarios condicionales ──
         if scrape_comments:
             comentarios = await extraer_comentarios_post(
@@ -676,9 +803,12 @@ async def extraer_detalle_post(
         menciones = extraer_menciones(caption)
 
         preview = caption[:70].replace("\n", " ") + ("..." if len(caption) > 70 else "")
-        print(f"    Caption: {preview}")
+        tipo_lbl = media_info.get("tipo", "image")
+        num_imgs = len(media_info.get("imagenes", []))
+        media_txt = f"🖼️ {tipo_lbl} ({num_imgs} img)" if media_info.get("imagen_url") else "🖼️ Sin imagen"
         info_cmts = f"💬 {len(comentarios)}" if scrape_comments else "💬 Omitidos"
-        print(f"    ❤️ {likes} | 📅 {fecha[:10] if fecha else 'N/A'} | {info_cmts}")
+        print(f"    Caption: {preview}")
+        print(f"    ❤️ {likes} | 📅 {fecha[:10] if fecha else 'N/A'} | {info_cmts} | {media_txt}")
 
         return {
             "url": url,
@@ -687,6 +817,11 @@ async def extraer_detalle_post(
             "menciones": menciones,
             "likes": likes,
             "fecha": fecha,
+            "tipo_media": media_info.get("tipo", "image"),
+            "imagen_url": media_info.get("imagen_url", ""),
+            "imagenes": media_info.get("imagenes", []),
+            "video_url": media_info.get("video_url", ""),
+            "alt_texto": media_info.get("alt_texto", ""),
             "total_comentarios": len(comentarios),
             "comentarios": comentarios,
         }
@@ -705,52 +840,6 @@ def exportar_json(resultado, filename):
     print(f"[EXPORTACIÓN] JSON generado: {filename}")
 
 
-def exportar_csv_relaciones(seguidos, seguidores, filename):
-    with open(filename, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["tipo", "username"])
-        for u in seguidos:
-            writer.writerow(["seguido", u])
-        for u in seguidores:
-            writer.writerow(["seguidor", u])
-    print(f"[EXPORTACIÓN] CSV relaciones: {filename}")
-
-
-def exportar_csv_publicaciones(publicaciones, filename):
-    with open(filename, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            "indice",
-            "url",
-            "fecha",
-            "likes",
-            "hashtags",
-            "menciones",
-            "total_comentarios",
-            "caption",
-        ])
-        for i, post in enumerate(publicaciones, 1):
-            writer.writerow([
-                i,
-                post["url"],
-                post["fecha"],
-                post["likes"],
-                "; ".join(post["hashtags"]),
-                "; ".join(post["menciones"]),
-                post["total_comentarios"],
-                post["caption"],
-            ])
-    print(f"[EXPORTACIÓN] CSV publicaciones: {filename}")
-
-
-def exportar_csv_comentarios(publicaciones, filename):
-    with open(filename, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["post_indice", "post_url", "usuario", "comentario"])
-        for i, post in enumerate(publicaciones, 1):
-            for com in post.get("comentarios", []):
-                writer.writerow([i, post["url"], com["usuario"], com["texto"]])
-    print(f"[EXPORTACIÓN] CSV comentarios: {filename}")
 
 
 # ─────────────────────────────────────────────────────────
@@ -843,6 +932,36 @@ async def run(config=None):
         print(f"  Seguidos:      {following_num}")
         print(f"  Biografía:     {' | '.join(bio_lines)}")
 
+        # ── 1.1 Foto de perfil (URL y descarga local) ──
+        foto_perfil_url = ""
+        try:
+            foto_perfil_url = await page.evaluate(r"""() => {
+                const header = document.querySelector('header');
+                if (!header) return '';
+                const img = header.querySelector("img[alt*='perfil'], img[alt*='profile'], img");
+                return img ? (img.getAttribute('src') || img.src || '') : '';
+            }""")
+        except Exception:
+            pass
+
+        foto_perfil_local = ""
+        if foto_perfil_url:
+            print(f"\n🖼️  Foto de perfil detectada.")
+            try:
+                avatar_resp = await context.request.get(foto_perfil_url)
+                if avatar_resp.status == 200:
+                    avatar_filename = f"{config.target_user}_avatar.jpg"
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    avatar_path = os.path.join(script_dir, avatar_filename)
+                    with open(avatar_path, "wb") as f:
+                        f.write(await avatar_resp.body())
+                    foto_perfil_local = avatar_filename
+                    print(f"    ✅ Avatar descargado localmente: {avatar_filename}")
+                else:
+                    print(f"    [AVISO] No se pudo descargar avatar (HTTP {avatar_resp.status})")
+            except Exception as err:
+                print(f"    [AVISO] Error al descargar foto de perfil: {err}")
+
         # ── 2. Seguidores y Seguidos (Módulos opcionales) ──
         seguidos = []
         if config.scrape_following:
@@ -915,6 +1034,8 @@ async def run(config=None):
 
         resultado = {
             "perfil": config.target_user,
+            "foto_perfil_url": foto_perfil_url,
+            "foto_perfil_local": foto_perfil_local,
             "biografia": "\n".join(bio_lines),
             "publicaciones_count": posts_num,
             "total_seguidores": followers_num,
@@ -929,14 +1050,6 @@ async def run(config=None):
         }
 
         exportar_json(resultado, f"{config.target_user}_datos.json")
-
-        if config.scrape_following or config.scrape_followers:
-            exportar_csv_relaciones(seguidos, seguidores, f"{config.target_user}_relaciones.csv")
-
-        if config.scrape_posts and len(publicaciones) > 0:
-            exportar_csv_publicaciones(publicaciones, f"{config.target_user}_publicaciones.csv")
-            if config.scrape_comments and any(p.get("comentarios") for p in publicaciones):
-                exportar_csv_comentarios(publicaciones, f"{config.target_user}_comentarios.csv")
 
         await browser.close()
 

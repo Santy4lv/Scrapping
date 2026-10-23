@@ -9,20 +9,23 @@ Incluye un scraper automatizado con **Playwright** que utiliza autenticación me
 ## 🚀 Características
 
 - **Extracción de perfil y métricas:**
-  - Cantidad de publicaciones, seguidores, seguidos y biografía.
+  - Cantidad de publicaciones, seguidores, seguidos, biografía y foto de perfil.
+  - Descarga automática de la foto de perfil en formato local (`{usuario}_avatar.jpg`).
 - **Lista de Seguidores y Seguidos:**
   - Desplazamiento automático con rebote en modales para sortear lazy-loading dinámico.
-- **Detalle de Publicaciones:**
+- **Detalle de Publicaciones y Multimedia:**
+  - URLs de imágenes directas, detección de tipo (`image`, `carousel`, `video`).
+  - Navegación automática en carruseles para recolectar todas las fotografías del álbum.
+  - Extracción de texto alternativo accesible (`alt_texto`).
   - URLs de posts, descripciones completas, conteo de likes, hashtags (#) y menciones (@).
 - **Extracción de Comentarios:**
   - Recolección de comentarios asociados a cada publicación (usuario + texto).
-- **Múltiples formatos de exportación:**
-  - `{usuario}_datos.json` (Estructura jerárquica completa para el dashboard).
-  - `{usuario}_relaciones.csv` (Seguidores y seguidos).
-  - `{usuario}_publicaciones.csv` (Publicaciones y métricas).
-  - `{usuario}_comentarios.csv` (Comentarios por publicación).
+- **Exportación Integral de Datos:**
+  - `{usuario}_datos.json` (Estructura jerárquica unificada y completa con metadatos de perfil, relaciones, publicaciones, imágenes/carruseles y comentarios para el dashboard y análisis).
 - **Visualizador Web Interactivo (`dashboard.html`):**
   - Interfaz moderna con modo oscuro y diseño Glassmorphism.
+  - Avatar real del usuario en la cabecera.
+  - Renderizado visual de imágenes, carruseles y enlaces directos a Instagram.
   - Carga arrastrando y soltando (drag-and-drop) del archivo JSON.
   - Métricas clave en tarjetas dinámicas (Follower/Following ratio, engagement, etc.).
   - Pestaña de publicaciones con acordeón expandible de comentarios.
@@ -99,7 +102,7 @@ python PlayScrap.py --user otro_usuario --headless --posts-only
 python PlayScrap.py --help
 ```
 
-Al terminar, se generarán automáticamente los archivos JSON y CSV correspondientes a los módulos activos.
+Al terminar, se generará automáticamente el archivo `{usuario}_datos.json` correspondiente a los módulos activos.
 
 ---
 
