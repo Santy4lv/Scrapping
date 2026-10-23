@@ -112,10 +112,10 @@ EMOJI_PATTERNS = {
 # ─────────────────────────────────────────────────────────
 
 class BigFiveAnalyzer:
-    def __init__(self, data, api_key=None, model_name="gemini-2.5-flash"):
+    def __init__(self, data, api_key=None, model_name="gemini-3.5-flash"):
         self.data = data
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
-        self.model_name = model_name or "gemini-2.5-flash"
+        self.model_name = model_name or "gemini-3.5-flash"
         self.username = data.get("perfil", "usuario_desconocido")
         self.bio = data.get("biografia", "")
         self.avatar_url = data.get("foto_perfil_url", "")
@@ -294,7 +294,17 @@ Responde ÚNICAMENTE en formato JSON con la siguiente estructura exacta:
 }}
 """
 
-        models_to_try = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+        models_to_try = [
+            self.model_name,
+            "gemini-3.5-flash",
+            "gemini-3.8-flash",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-flash-latest",
+            "gemini-2.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemini-2.5-flash",
+        ]
         unique_models = []
         for m in models_to_try:
             if m and m not in unique_models:
@@ -313,6 +323,9 @@ Responde ÚNICAMENTE en formato JSON con la siguiente estructura exacta:
                     )
                 )
                 raw_text = response.text.strip()
+                if raw_text.startswith("```"):
+                    raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text, flags=re.IGNORECASE)
+                    raw_text = re.sub(r"\s*```$", "", raw_text)
                 parsed = json.loads(raw_text)
                 return self._build_gemini_result(parsed, model)
             except Exception as e:
@@ -1499,7 +1512,7 @@ def main():
     parser = argparse.ArgumentParser(description="Analizador Psicométrico Big Five (OCEAN) para Instagram")
     parser.add_argument("archivo", nargs="?", default=None, help="Ruta al archivo JSON de datos extraídos")
     parser.add_argument("--api-key", default=None, help="Google Gemini API Key (o definir GEMINI_API_KEY en .env)")
-    parser.add_argument("--model", default="gemini-2.5-flash", help="Modelo de Gemini (por defecto: gemini-2.5-flash)")
+    parser.add_argument("--model", default="gemini-3.5-flash", help="Modelo de Gemini (por defecto: gemini-3.5-flash)")
     parser.add_argument("--offline", action="store_true", help="Forzar análisis léxico heurístico offline sin usar la API de Gemini")
     args = parser.parse_args()
 
