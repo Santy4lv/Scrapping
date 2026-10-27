@@ -805,21 +805,35 @@
 
     /* ── Users (followers / following) ── */
     function renderUsers(type, filter = '') {
-        const list = type === 'followers' ? (DATA.seguidores || []) : (DATA.seguidos || []);
+        const rawList = type === 'followers'
+            ? (DATA.seguidores || (DATA.red_analizada?.tipo_red === 'seguidores' ? DATA.red_analizada.cuentas : []))
+            : (DATA.seguidos || (DATA.red_analizada?.tipo_red === 'seguidos' ? DATA.red_analizada.cuentas : []));
+        const list = rawList || [];
         const grid = document.getElementById(type === 'followers' ? 'followers-grid' : 'following-grid');
         grid.innerHTML = '';
 
-        const filtered = list.filter(u => !filter || u.toLowerCase().includes(filter));
+        const filterLower = (filter || '').toLowerCase();
+        const filtered = list.filter(item => {
+            const uname = typeof item === 'string' ? item : (item.usuario || '');
+            return !filterLower || uname.toLowerCase().includes(filterLower);
+        });
         const countId = type === 'followers' ? 'count-followers' : 'count-following';
         document.getElementById(countId).textContent = `${filtered.length} de ${list.length}`;
 
-        filtered.forEach((user, i) => {
+        filtered.forEach((item, i) => {
+            const uname = typeof item === 'string' ? item : (item.usuario || '');
+            const stats = typeof item === 'object' && item.seguidores !== undefined
+                ? `<span style="font-size:0.75rem; color:#94a3b8; display:block; margin-top:2px;">👥 ${item.seguidores.toLocaleString()} seg. | 🫂 ${item.seguidos.toLocaleString()} seguidos</span>`
+                : '';
             const chip = document.createElement('div');
             chip.className = 'user-chip glass';
             chip.style.animationDelay = Math.min(i * 0.01, 0.5) + 's';
             chip.innerHTML = `
-                <div class="user-avatar-mini">${user.charAt(0).toUpperCase()}</div>
-                <a href="https://www.instagram.com/${user}/" target="_blank" rel="noopener">@${escapeHtml(user)}</a>
+                <div class="user-avatar-mini">${uname.charAt(0).toUpperCase()}</div>
+                <div>
+                    <a href="https://www.instagram.com/${uname}/" target="_blank" rel="noopener">@${escapeHtml(uname)}</a>
+                    ${stats}
+                </div>
             `;
             grid.appendChild(chip);
         });

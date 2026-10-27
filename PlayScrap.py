@@ -1230,17 +1230,12 @@ async def run(config=None):
         else:
             print("\n[MÓDULO] Extracción de seguidores omitida por configuración.")
 
-        # Consolidar listas simples de usernames (retrocompatibilidad)
-        seguidores = [
-            item["usuario"] if isinstance(item, dict) else item
-            for item in seguidores_raw
-        ]
-        seguidos = [
-            item["usuario"] if isinstance(item, dict) else item
-            for item in seguidos_raw
-        ]
-
         # Consolidar cuentas detalladas con métricas para análisis de red / Benford
+        origen_es = (
+            "seguidores" if config.network_source == "followers"
+            else ("seguidos" if config.network_source == "following" else "ambos")
+        )
+
         cuentas_red = []
         if config.network_source in ("followers", "both"):
             for item in seguidores_raw:
@@ -1316,20 +1311,24 @@ async def run(config=None):
             "publicaciones_count": posts_num,
             "total_seguidores": followers_num,
             "total_seguidos": following_num,
-            "seguidores_recolectados": len(seguidores),
-            "seguidos_recolectados": len(seguidos),
+            "seguidores_recolectados": len(seguidores_raw),
+            "seguidos_recolectados": len(seguidos_raw),
             "posts_recolectados": len(publicaciones),
             "configuracion": safe_config,
-            "seguidores": seguidores,
-            "seguidos": seguidos,
-            "red_metricas": {
-                "origen": config.network_source,
-                "total_disponible": total_red_disponible,
-                "total_analizados": len(cuentas_red),
+            "red_analizada": {
+                "tipo_red": origen_es,
+                "total_en_perfil": total_red_disponible,
+                "muestra_extraida": len(cuentas_red),
                 "cuentas": cuentas_red,
             },
             "publicaciones": publicaciones,
         }
+
+        # Guardar lista de cuentas con sus métricas bajo su clave correspondiente
+        if config.scrape_followers:
+            resultado["seguidores"] = seguidores_raw
+        if config.scrape_following:
+            resultado["seguidos"] = seguidos_raw
 
         exportar_json(resultado, f"{config.target_user}_datos.json")
 
