@@ -39,7 +39,7 @@ function chiSquareSurvival8df(chi2) {
     return Math.max(0.0, Math.min(1.0, p));
 }
 
-function calculateHumanScore(chi2Val, madVal, n, zeroPct = 0) {
+function calculateHumanScore(chi2Val, madVal, n) {
     const chi2Critico = 15.507;
     const madCritico = 0.015;
     const ratioChi2 = chi2Val / chi2Critico;
@@ -47,13 +47,6 @@ function calculateHumanScore(chi2Val, madVal, n, zeroPct = 0) {
 
     const distancia = 0.45 * Math.min(3.0, ratioChi2) + 0.55 * Math.min(3.0, ratioMad);
     let humanPct = 100.0 / (1.0 + Math.pow(distancia / 1.5, 2.4));
-
-    // Ajuste forense si existe alta concentración de cuentas con 0 métricas (fantasmas/inactivas)
-    if (zeroPct > 15) {
-        const penalizacionCero = Math.min(25, (zeroPct - 15) * 1.2);
-        humanPct -= penalizacionCero;
-    }
-
     humanPct = Math.max(3.0, Math.min(99.0, humanPct));
 
     let nivel = '';
@@ -71,10 +64,6 @@ function calculateHumanScore(chi2Val, madVal, n, zeroPct = 0) {
     } else {
         nivel = 'No Conformidad Severa (Anómalo)';
         veredicto = 'Alta Probabilidad de Comportamiento Artificial / Botnet';
-    }
-
-    if (zeroPct > 20) {
-        veredicto += ` (Atención: ${zeroPct}% cuentas con 0 métricas)`;
     }
 
     if (n < 40) {
@@ -162,7 +151,7 @@ function analyzeBenfordSeries(numbers, seriesName) {
         if (diff > ksMax) ksMax = diff;
     }
 
-    const scoreInfo = calculateHumanScore(chi2Val, madVal, n, zeroPct);
+    const scoreInfo = calculateHumanScore(chi2Val, madVal, n);
 
     const pctObsRound = {};
     const pctEspRound = {};
