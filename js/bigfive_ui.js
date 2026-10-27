@@ -19,7 +19,43 @@ function renderBigFiveTab() {
 function renderBigFivePromptView() {
     const container = document.getElementById('bigfive-content');
     if (!container) return;
-    const savedKey = typeof getStoredGeminiApiKey === 'function' ? getStoredGeminiApiKey() : '';
+    const detectedKey = (typeof DATA === 'object' && DATA && DATA.gemini_api_key)
+        ? DATA.gemini_api_key
+        : (typeof getStoredGeminiApiKey === 'function' ? getStoredGeminiApiKey() : '');
+
+    let keySectionHtml = '';
+    let btnText = '⚡ Analizar Personalidad con Gemini AI';
+
+    if (detectedKey) {
+        keySectionHtml = `
+            <div style="text-align: left; background: rgba(6, 182, 212, 0.08); border: 1px solid rgba(6, 182, 212, 0.3); border-radius: 12px; padding: 16px; margin-bottom: 24px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 22px;">✨</span>
+                        <div>
+                            <div style="font-size: 13px; font-weight: 700; color: #67e8f9;">Gemini API Key Detectada desde .env</div>
+                            <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px;">El análisis de personalidad se ejecutará con Google Gemini AI.</div>
+                        </div>
+                    </div>
+                    <span class="badge-gemini" style="font-size: 10px;">IA Lista</span>
+                </div>
+                <input type="hidden" id="gemini-key-input" value="${escapeHtml(detectedKey)}">
+            </div>
+        `;
+    } else {
+        btnText = '⚡ Iniciar Análisis de Personalidad';
+        keySectionHtml = `
+            <div style="text-align: left; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 24px;">
+                <label style="display: block; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); margin-bottom: 8px;">
+                    🔑 Gemini API Key (Opcional)
+                </label>
+                <input type="password" id="gemini-key-input" class="search-bar" style="width: 100%; border-radius: 8px; font-size: 13px;" placeholder="AIzaSy... (opcional)">
+                <p style="font-size: 11px; color: var(--text-dim); margin-top: 6px;">
+                    💡 Si no configuras una API Key en <code>.env</code> ni aquí, se ejecutará el <strong>motor léxico local de contingencia</strong> (100% privado y offline).
+                </p>
+            </div>
+        `;
+    }
 
     container.innerHTML = `
         <div class="empty-state glass" style="padding: 48px 32px; text-align: center; max-width: 640px; margin: 0 auto;">
@@ -28,17 +64,9 @@ function renderBigFivePromptView() {
             <p style="color: var(--text-secondary); font-size: 14px; line-height: 1.6; margin-bottom: 24px;">
                 Evalúa los 5 factores de la personalidad (Apertura, Responsabilidad, Extraversión, Amabilidad y Estabilidad) a partir del lenguaje en publicaciones, biografía e interacciones.
             </p>
-            <div style="text-align: left; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 24px;">
-                <label style="display: block; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); margin-bottom: 8px;">
-                    🔑 Gemini API Key (Opcional para IA Avanzada)
-                </label>
-                <input type="password" id="gemini-key-input" class="search-bar" style="width: 100%; border-radius: 8px; font-size: 13px;" placeholder="AIzaSy... (opcional)" value="${escapeHtml(savedKey)}">
-                <p style="font-size: 11px; color: var(--text-dim); margin-top: 6px;">
-                    💡 Si dejas este campo vacío, se ejecutará el <strong>motor léxico local de contingencia</strong> (100% privado y sin dependencias).
-                </p>
-            </div>
+            ${keySectionHtml}
             <button class="upload-btn" id="btn-run-bigfive" onclick="executeBigFiveAnalysis()" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; border: none;">
-                ⚡ Analizar Personalidad Ahora
+                ${btnText}
             </button>
         </div>
     `;

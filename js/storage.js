@@ -10,6 +10,9 @@ function saveDashboardState() {
     if (!DATA) return;
     try {
         localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(DATA));
+        if (DATA.gemini_api_key) {
+            saveGeminiApiKey(DATA.gemini_api_key);
+        }
     } catch (err) {
         console.warn('No se pudo guardar en localStorage (límite de cuota alcanzado):', err);
     }
