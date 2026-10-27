@@ -3,6 +3,8 @@
  */
 const STORAGE_KEY_DATA = 'ig_analyzer_data';
 const STORAGE_KEY_ACTIVE_TAB = 'ig_analyzer_active_tab';
+const STORAGE_KEY_BIGFIVE = 'ig_analyzer_bigfive';
+const STORAGE_KEY_GEMINI_KEY = 'ig_analyzer_gemini_key';
 
 function saveDashboardState() {
     if (!DATA) return;
@@ -13,11 +15,45 @@ function saveDashboardState() {
     }
 }
 
+function saveBigFiveAnalysis(result) {
+    if (!result) return;
+    try {
+        localStorage.setItem(STORAGE_KEY_BIGFIVE, JSON.stringify(result));
+    } catch (err) {
+        console.warn('No se pudo guardar Big Five en localStorage:', err);
+    }
+}
+
+function getStoredBigFiveAnalysis() {
+    try {
+        const stored = localStorage.getItem(STORAGE_KEY_BIGFIVE);
+        return stored ? JSON.parse(stored) : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function saveGeminiApiKey(key) {
+    try {
+        if (key) localStorage.setItem(STORAGE_KEY_GEMINI_KEY, key);
+        else localStorage.removeItem(STORAGE_KEY_GEMINI_KEY);
+    } catch (e) {}
+}
+
+function getStoredGeminiApiKey() {
+    try {
+        return localStorage.getItem(STORAGE_KEY_GEMINI_KEY) || '';
+    } catch (e) {
+        return '';
+    }
+}
+
 function clearDashboardState() {
     DATA = null;
     try {
         localStorage.removeItem(STORAGE_KEY_DATA);
         localStorage.removeItem(STORAGE_KEY_ACTIVE_TAB);
+        localStorage.removeItem(STORAGE_KEY_BIGFIVE);
     } catch (e) {}
 }
 
