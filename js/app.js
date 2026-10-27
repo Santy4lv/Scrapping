@@ -239,22 +239,35 @@ function renderPosts(filter = '') {
             }).join('')
             : '<div class="no-comments">Sin comentarios extraídos</div>';
 
-        // Media HTML
+        // Media & Carrusel interactivo
         let mediaHtml = '';
-        if (post.imagen_url) {
-            const badgeText = (post.tipo_media === 'carousel' && post.imagenes && post.imagenes.length > 1)
-                ? `📸 Carrusel (${post.imagenes.length})`
+        const images = (post.tipo_media === 'carousel' && Array.isArray(post.imagenes) && post.imagenes.length > 0)
+            ? post.imagenes
+            : (post.imagen_url ? [post.imagen_url] : []);
+        const isCarousel = images.length > 1;
+
+        if (images.length > 0) {
+            const badgeText = isCarousel
+                ? `📸 Carrusel (${images.length})`
                 : (post.tipo_media === 'video' ? '▶ Video / Reel' : '');
             const badgeHtml = badgeText ? `<span class="post-media-badge">${badgeText}</span>` : '';
+            const navButtons = isCarousel ? `
+                <button class="carousel-nav-btn carousel-nav-prev" onclick="stepPostCarousel(${idx}, -1, event)" title="Foto anterior">◀</button>
+                <button class="carousel-nav-btn carousel-nav-next" onclick="stepPostCarousel(${idx}, 1, event)" title="Foto siguiente">▶</button>
+                <span class="carousel-counter" id="carousel-count-${idx}">1 / ${images.length}</span>
+            ` : '';
 
             mediaHtml = `
-                <div class="post-media-wrap">
-                    <img src="${escapeHtml(post.imagen_url)}" 
+                <div class="post-media-wrap" id="media-wrap-${idx}">
+                    <img src="${escapeHtml(images[0])}" 
                          alt="${escapeHtml(post.alt_texto || post.caption || 'Publicación')}" 
                          class="post-media-img" 
+                         id="post-img-${idx}"
                          loading="lazy" 
-                         onerror="this.closest('.post-media-wrap').style.display='none';">
+                         onclick="openLightboxForPost(${idx}, event)">
+                    <span class="post-zoom-btn" onclick="openLightboxForPost(${idx}, event)">🔍 Ver en grande</span>
                     ${badgeHtml}
+                    ${navButtons}
                 </div>
             `;
         }
@@ -264,14 +277,15 @@ function renderPosts(filter = '') {
             : '';
 
         let carouselThumbsHtml = '';
-        if (post.tipo_media === 'carousel' && post.imagenes && post.imagenes.length > 1) {
+        if (isCarousel) {
             carouselThumbsHtml = `
-                <div class="carousel-preview" title="Fotos del carrusel">
-                    ${post.imagenes.map((imgUrl, i) => `
+                <div class="carousel-preview" id="carousel-thumbs-${idx}" title="Haz clic en una foto para cambiar la vista">
+                    ${images.map((imgUrl, i) => `
                         <img src="${escapeHtml(imgUrl)}" 
                              alt="Foto ${i + 1}" 
-                             class="carousel-thumb" 
+                             class="carousel-thumb ${i === 0 ? 'active' : ''}" 
                              loading="lazy" 
+                             onclick="selectPostCarouselImage(${idx}, ${i}, event)"
                              onerror="this.style.display='none';">
                     `).join('')}
                 </div>
@@ -401,6 +415,117 @@ function setupSearch() {
         });
     }
 }
+
+/* ════════════════════════════════════════════════════
+   INTERACTIVE CAROUSEL & LIGHTBOX VIEWER
+   ════════════════════════════════════════════════════ */
+window.postCarouselIndices = {};
+
+function stepPostCarousel(postIdx, delta, event) {
+    if (event) event.stopPropagation();
+    const posts = (DATA && DATA.publicaciones) ? DATA.publicaciones : [];
+    const post = posts[postIdx];
+    if (!post || !post.imagenes || post.imagenes.length <= 1) return;
+
+    if (typeof window.postCarouselIndices[postIdx] !== 'number') {
+        window.postCarouselIndices[postIdx] = 0;
+    }
+    const current = window.postCarouselIndices[postIdx];
+    const total = post.imagenes.length;
+    const next = (current + delta + total) % total;
+    selectPostCarouselImage(postIdx, next, event);
+}
+
+function selectPostCarouselImage(postIdx, imgIdx, event) {
+    if (event) event.stopPropagation();
+    const posts = (DATA && DATA.publicaciones) ? DATA.publicaciones : [];
+    const post = posts[postIdx];
+    if (!post || !post.imagenes || !post.imagenes[imgIdx]) return;
+
+    window.postCarouselIndices[postIdx] = imgIdx;
+    const imgEl = document.getElementById(`post-img-${postIdx}`);
+    if (imgEl) imgEl.src = post.imagenes[imgIdx];
+
+    const countEl = document.getElementById(`carousel-count-${postIdx}`);
+    if (countEl) countEl.textContent = `${imgIdx + 1} / ${post.imagenes.length}`;
+
+    const thumbsWrap = document.getElementById(`carousel-thumbs-${postIdx}`);
+    if (thumbsWrap) {
+        thumbsWrap.querySelectorAll('.carousel-thumb').forEach((th, i) => {
+            th.classList.toggle('active', i === imgIdx);
+        });
+    }
+}
+
+let currentLightboxPost = null;
+let currentLightboxImgIdx = 0;
+
+function openLightboxForPost(postIdx, event) {
+    if (event) event.stopPropagation();
+    const posts = (DATA && DATA.publicaciones) ? DATA.publicaciones : [];
+    const post = posts[postIdx];
+    if (!post) return;
+
+    const images = (post.tipo_media === 'carousel' && Array.isArray(post.imagenes) && post.imagenes.length > 0)
+        ? post.imagenes
+        : (post.imagen_url ? [post.imagen_url] : []);
+    if (images.length === 0) return;
+
+    currentLightboxPost = post;
+    currentLightboxImgIdx = window.postCarouselIndices[postIdx] || 0;
+    if (currentLightboxImgIdx >= images.length) currentLightboxImgIdx = 0;
+
+    updateLightboxView();
+    const modal = document.getElementById('lightbox-modal');
+    if (modal) modal.classList.add('active');
+}
+
+function updateLightboxView() {
+    if (!currentLightboxPost) return;
+    const images = (currentLightboxPost.tipo_media === 'carousel' && Array.isArray(currentLightboxPost.imagenes) && currentLightboxPost.imagenes.length > 0)
+        ? currentLightboxPost.imagenes
+        : (currentLightboxPost.imagen_url ? [currentLightboxPost.imagen_url] : []);
+
+    const imgEl = document.getElementById('lightbox-img');
+    const counterEl = document.getElementById('lightbox-counter');
+    const captionEl = document.getElementById('lightbox-caption');
+    const prevBtn = document.querySelector('.lightbox-prev');
+    const nextBtn = document.querySelector('.lightbox-next');
+
+    if (imgEl) imgEl.src = images[currentLightboxImgIdx];
+    if (counterEl) counterEl.textContent = `Foto ${currentLightboxImgIdx + 1} de ${images.length}`;
+    if (captionEl) captionEl.textContent = currentLightboxPost.caption || currentLightboxPost.alt_texto || '';
+
+    if (prevBtn) prevBtn.style.display = images.length > 1 ? 'flex' : 'none';
+    if (nextBtn) nextBtn.style.display = images.length > 1 ? 'flex' : 'none';
+}
+
+function navigateLightbox(delta) {
+    if (!currentLightboxPost) return;
+    const images = (currentLightboxPost.tipo_media === 'carousel' && Array.isArray(currentLightboxPost.imagenes) && currentLightboxPost.imagenes.length > 0)
+        ? currentLightboxPost.imagenes
+        : (currentLightboxPost.imagen_url ? [currentLightboxPost.imagen_url] : []);
+    if (images.length <= 1) return;
+
+    currentLightboxImgIdx = (currentLightboxImgIdx + delta + images.length) % images.length;
+    updateLightboxView();
+}
+
+function closeLightbox(event) {
+    if (event) event.stopPropagation();
+    const modal = document.getElementById('lightbox-modal');
+    if (modal) modal.classList.remove('active');
+    currentLightboxPost = null;
+}
+
+document.addEventListener('keydown', e => {
+    const modal = document.getElementById('lightbox-modal');
+    if (modal && modal.classList.contains('active')) {
+        if (e.key === 'Escape') closeLightbox();
+        if (e.key === 'ArrowLeft') navigateLightbox(-1);
+        if (e.key === 'ArrowRight') navigateLightbox(1);
+    }
+});
 
 /* ════════════════════════════════════════════════════
    UTILITIES & AUTO-INIT
