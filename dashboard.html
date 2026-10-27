@@ -419,7 +419,7 @@
                 </div>
                 <div class="nav-right">
                     <div class="nav-user" id="nav-username">@perfil</div>
-                    <button class="btn-ghost" id="btn-reload">Cargar otro</button>
+                    <button class="btn-ghost" id="btn-reload" title="Cargar un nuevo archivo JSON">🔄 Cambiar perfil</button>
                 </div>
             </nav>
 
@@ -523,9 +523,47 @@
 
     <script>
     /* ════════════════════════════════════════════════════
-       STATE
+       STATE & PERSISTENCE (localStorage)
        ════════════════════════════════════════════════════ */
     let DATA = null;
+    const STORAGE_KEY_DATA = 'ig_analyzer_data';
+    const STORAGE_KEY_ACTIVE_TAB = 'ig_analyzer_active_tab';
+
+    function saveDashboardState() {
+        if (!DATA) return;
+        try {
+            localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(DATA));
+        } catch (err) {
+            console.warn('No se pudo guardar en localStorage (límite de cuota alcanzado):', err);
+        }
+    }
+
+    function clearDashboardState() {
+        DATA = null;
+        try {
+            localStorage.removeItem(STORAGE_KEY_DATA);
+            localStorage.removeItem(STORAGE_KEY_ACTIVE_TAB);
+        } catch (e) {}
+    }
+
+    function restoreDashboardState() {
+        try {
+            const cached = localStorage.getItem(STORAGE_KEY_DATA);
+            if (cached) {
+                DATA = JSON.parse(cached);
+                if (DATA && typeof DATA === 'object' && (DATA.perfil || DATA.publicaciones)) {
+                    showDashboard();
+                    const savedTab = localStorage.getItem(STORAGE_KEY_ACTIVE_TAB);
+                    if (savedTab) switchTab(savedTab);
+                    return true;
+                }
+            }
+        } catch (err) {
+            console.warn('Error al restaurar sesión previa:', err);
+            clearDashboardState();
+        }
+        return false;
+    }
 
     /* ════════════════════════════════════════════════════
        FILE LOADING
@@ -547,6 +585,7 @@
     });
 
     document.getElementById('btn-reload').addEventListener('click', () => {
+        clearDashboardState();
         document.getElementById('upload-screen').classList.remove('hidden');
         document.getElementById('dashboard-screen').classList.add('hidden');
         fileInput.value = '';
@@ -557,6 +596,7 @@
         reader.onload = e => {
             try {
                 DATA = JSON.parse(e.target.result);
+                saveDashboardState();
                 showDashboard();
             } catch (err) {
                 alert('Error al leer el archivo JSON: ' + err.message);
@@ -722,14 +762,18 @@
             ].join('');
 
             const commentsHtml = (post.comentarios || []).length > 0
-                ? (post.comentarios || []).map(c => `
+                ? (post.comentarios || []).map(c => {
+                    const u = (c && c.usuario) ? String(c.usuario) : 'Anónimo';
+                    const initial = u ? u.charAt(0).toUpperCase() : '?';
+                    return `
                     <div class="comment">
-                        <div class="comment-avatar">${c.usuario.charAt(0).toUpperCase()}</div>
+                        <div class="comment-avatar">${initial}</div>
                         <div class="comment-body">
-                            <div class="comment-user">${escapeHtml(c.usuario)}</div>
-                            <div class="comment-text">${escapeHtml(c.texto)}</div>
+                            <div class="comment-user">${escapeHtml(u)}</div>
+                            <div class="comment-text">${escapeHtml(c.texto || '')}</div>
                         </div>
-                    </div>`).join('')
+                    </div>`;
+                }).join('')
                 : '<div class="no-comments">Sin comentarios extraídos</div>';
 
             // Media HTML
@@ -809,17 +853,31 @@
         const grid = document.getElementById(type === 'followers' ? 'followers-grid' : 'following-grid');
         grid.innerHTML = '';
 
-        const filtered = list.filter(u => !filter || u.toLowerCase().includes(filter));
+        const getUsername = item => (typeof item === 'object' && item !== null) ? (item.usuario || '') : String(item || '');
+        const filtered = list.filter(u => !filter || getUsername(u).toLowerCase().includes(filter));
         const countId = type === 'followers' ? 'count-followers' : 'count-following';
         document.getElementById(countId).textContent = `${filtered.length} de ${list.length}`;
 
-        filtered.forEach((user, i) => {
+        filtered.forEach((item, i) => {
+            const username = getUsername(item);
+            const initial = username ? username.charAt(0).toUpperCase() : '?';
             const chip = document.createElement('div');
             chip.className = 'user-chip glass';
             chip.style.animationDelay = Math.min(i * 0.01, 0.5) + 's';
+
+            let metricasBadge = '';
+            if (typeof item === 'object' && item !== null && (item.seguidores !== undefined || item.seguidos !== undefined)) {
+                metricasBadge = `<div class="user-metrics-mini" style="font-size:11px;color:var(--text-dim);margin-top:2px;">
+                    👥 ${Number(item.seguidores || 0).toLocaleString()} seg. | 🫂 ${Number(item.seguidos || 0).toLocaleString()} seguidos
+                </div>`;
+            }
+
             chip.innerHTML = `
-                <div class="user-avatar-mini">${user.charAt(0).toUpperCase()}</div>
-                <a href="https://www.instagram.com/${user}/" target="_blank" rel="noopener">@${escapeHtml(user)}</a>
+                <div class="user-avatar-mini">${initial}</div>
+                <div style="display:flex;flex-direction:column;">
+                    <a href="https://www.instagram.com/${escapeHtml(username)}/" target="_blank" rel="noopener">@${escapeHtml(username)}</a>
+                    ${metricasBadge}
+                </div>
             `;
             grid.appendChild(chip);
         });
@@ -828,13 +886,24 @@
     /* ════════════════════════════════════════════════════
        INTERACTIONS
        ════════════════════════════════════════════════════ */
+    function switchTab(tabName) {
+        const tabBtn = document.querySelector(`.tab[data-tab="${tabName}"]`);
+        const panel = document.getElementById('panel-' + tabName);
+        if (!tabBtn || !panel) return;
+
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        tabBtn.classList.add('active');
+        panel.classList.add('active');
+        try {
+            localStorage.setItem(STORAGE_KEY_ACTIVE_TAB, tabName);
+        } catch (e) {}
+    }
+
     function setupTabs() {
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-                tab.classList.add('active');
-                document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+                switchTab(tab.dataset.tab);
             });
         });
     }
@@ -852,13 +921,16 @@
     }
 
     /* ════════════════════════════════════════════════════
-       UTILITIES
+       UTILITIES & AUTO-INIT
        ════════════════════════════════════════════════════ */
     function escapeHtml(str) {
         const div = document.createElement('div');
         div.textContent = str;
         return div.innerHTML;
     }
+
+    // Inicializar y restaurar sesión previa al cargar
+    restoreDashboardState();
     </script>
 </body>
 </html>
