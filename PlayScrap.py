@@ -79,7 +79,6 @@ class ScraperConfig:
 
         # Presets rápidos
         parser.add_argument("--posts-only", action="store_true", help="Atajo: solo posts y comentarios (omite seguidores y seguidos)")
-        parser.add_argument("--network-only", action="store_true", help="Atajo: solo seguidores y seguidos (omite posts y comentarios)")
 
         # Toggles individuales de módulos
         parser.add_argument("--followers", dest="scrape_followers", action="store_true", default=None, help="Activar extracción de seguidores")
@@ -117,11 +116,6 @@ class ScraperConfig:
             followers = False
             following = False
             posts = True
-        elif parsed.network_only:
-            followers = True
-            following = True
-            posts = False
-            comments = False
 
         # Sobreescritura individual de flags
         if parsed.scrape_followers is not None:
@@ -157,12 +151,12 @@ class ScraperConfig:
     def print_banner(self):
         """Muestra en terminal la configuración con la que iniciará el scraper."""
         f_fol = (
-            f"[✓ Activo] (Límite: {self.max_followers if self.max_followers > 0 else 'Sin límite'})"
+            f"[✓ Activo] (Límite: {self.max_followers if self.max_followers > 0 else 'Sin límite (todos)'})"
             if self.scrape_followers
             else "[✗ Omitido]"
         )
         f_flw = (
-            f"[✓ Activo] (Límite: {self.max_following if self.max_following > 0 else 'Sin límite'})"
+            f"[✓ Activo] (Límite: {self.max_following if self.max_following > 0 else 'Sin límite (todos)'})"
             if self.scrape_following
             else "[✗ Omitido]"
         )
@@ -199,6 +193,43 @@ def parsear_numero(texto):
     limpio = texto.replace(".", "").replace(",", "")
     match = re.search(r"\d+", limpio)
     return int(match.group(0)) if match else 0
+
+
+def parsear_numero_metricas(texto: str) -> int:
+    """Parsea números de métricas admitiendo sufijos k, m, mil y separadores locales."""
+    if not texto:
+        return 0
+    t = texto.strip().lower().replace(" ", "")
+    m_k = re.search(r"\b([\d.,]+)(?:k|mil)\b", t)
+    if m_k:
+        val_str = m_k.group(1).replace(",", ".")
+        try:
+            return int(float(val_str) * 1000)
+        except ValueError:
+            pass
+    m_m = re.search(r"\b([\d.,]+)(?:m|mill[oó]n|millones)\b", t)
+    if m_m:
+        val_str = m_m.group(1).replace(",", ".")
+        try:
+            return int(float(val_str) * 1000000)
+        except ValueError:
+            pass
+    m_num = re.search(r"\b(\d+[\d.,]*)\b", t)
+    if m_num:
+        limpio = re.sub(r"[^\d]", "", m_num.group(1))
+        return int(limpio) if limpio else 0
+    return 0
+
+
+def calcular_meta_relaciones(total_disponible: int, limit: int = 0) -> int:
+    """
+    Calcula la meta de cuentas a extraer:
+      - Si limit > 0: se respeta el límite establecido por el usuario.
+      - Si limit == 0: sin límite (extrae todas las cuentas disponibles).
+    """
+    if limit > 0:
+        return limit
+    return total_disponible
 
 
 def extraer_hashtags(texto):
@@ -274,13 +305,14 @@ async def scroll_con_rebote(page):
 # ─────────────────────────────────────────────────────────
 # Extracción de seguidores / seguidos
 # ─────────────────────────────────────────────────────────
-async def extraer_relaciones(page, tipo="following", meta=0, limit=0):
+async def extraer_relaciones(page, tipo="following", meta=0, limit=0, target_user=""):
     texto_es = "seguidos" if tipo == "following" else "seguidores"
-    target_limit = limit if limit > 0 else meta
+    target_limit = calcular_meta_relaciones(meta, limit=limit)
     limite_txt = f"{target_limit}" if target_limit > 0 else "todos disponibles"
 
     print(f"\n==========================================")
-    print(f" Extrayendo {tipo} (Objetivo: {limite_txt})")
+    print(f" Extrayendo {texto_es} (Meta: {limite_txt})")
+    print(f" [HOVER] Captura de métricas por previsualización de cursor activa")
     print(f"==========================================")
 
     selector_btn = (
@@ -298,60 +330,94 @@ async def extraer_relaciones(page, tipo="following", meta=0, limit=0):
     await dialog.wait_for(state="visible", timeout=10000)
     await page.wait_for_timeout(1800)
 
-    usuarios = set()
+    cuentas_extraidas = []
+    usuarios_vistos = set()
     intentos_sin_cambio = 0
-    MAX_INTENTOS = 3
+    MAX_INTENTOS = 4
 
     while intentos_sin_cambio < MAX_INTENTOS:
-        nuevos = await dialog.locator("a[role='link']").evaluate_all(
-            r"""elements => {
-            const list = [];
-            for (const el of elements) {
-                const href = el.getAttribute('href');
-                if (href && href.startsWith('/') && !href.startsWith('/explore/')
-                    && !href.startsWith('/direct/')) {
-                    const u = href.replaceAll('/', '').trim();
-                    if (u && !list.includes(u)) list.push(u);
-                }
-            }
-            return list;
-        }"""
-        )
+        links = await dialog.locator("a[role='link']").all()
+        nuevos_en_ronda = 0
 
-        prev_count = len(usuarios)
-        usuarios.update(nuevos)
-        total_actual = len(usuarios)
+        for link in links:
+            try:
+                href = await link.get_attribute("href")
+                if not href or not href.startswith("/") or href.startswith(("/explore/", "/direct/")):
+                    continue
+                u = href.replace("/", "").strip()
+                if not u or u == target_user or u in usuarios_vistos:
+                    continue
 
+                # Previsualización por hover con cursor
+                await link.hover()
+                await page.wait_for_timeout(700)
+
+                card_data = await page.evaluate(r"""() => {
+                    const cards = Array.from(document.querySelectorAll("div, section"))
+                        .filter(el => {
+                            const t = el.innerText || '';
+                            const hasPosts = /\b(posts|publicaci\w*)\b/i.test(t);
+                            const hasFlw = /\b(followers|seguidores)\b/i.test(t);
+                            return hasPosts && hasFlw && t.length < 400 && t.length > 30;
+                        })
+                        .sort((a, b) => (a.innerText.length) - (b.innerText.length));
+                    return cards.length > 0 ? cards[0].innerText : '';
+                }""")
+
+                flw = 0
+                flg = 0
+                pst = 0
+
+                if card_data:
+                    m_pst = re.search(r"\b(\d+[\d.,kKmM]*)\s*(?:publicaci\w*|posts)\b", card_data, re.IGNORECASE)
+                    m_flw = re.search(r"\b(\d+[\d.,kKmM]*)\s*(?:seguidores|followers)\b", card_data, re.IGNORECASE)
+                    m_flg = re.search(r"\b(\d+[\d.,kKmM]*)\s*(?:seguidos|following)\b", card_data, re.IGNORECASE)
+
+                    if m_pst: pst = parsear_numero_metricas(m_pst.group(1))
+                    if m_flw: flw = parsear_numero_metricas(m_flw.group(1))
+                    if m_flg: flg = parsear_numero_metricas(m_flg.group(1))
+
+                usuarios_vistos.add(u)
+                cuentas_extraidas.append({
+                    "usuario": u,
+                    "seguidores": flw,
+                    "seguidos": flg,
+                    "publicaciones": pst
+                })
+                nuevos_en_ronda += 1
+
+                if target_limit > 0 and len(cuentas_extraidas) >= target_limit:
+                    break
+            except Exception:
+                continue
+
+        total_actual = len(cuentas_extraidas)
         if target_limit > 0 and total_actual >= target_limit:
-            print(f"[COMPLETADO] Se alcanzó la meta establecida: {total_actual}/{target_limit}")
+            print(f"[COMPLETADO] Meta alcanzada: {total_actual}/{target_limit}")
             break
 
         estado_scroll = await scroll_con_rebote(page)
-
-        if total_actual > prev_count:
+        if nuevos_en_ronda > 0:
             intentos_sin_cambio = 0
-            print(f"Progreso {tipo}: {total_actual} recolectados...")
+            print(f"Progreso {texto_es}: {total_actual} recolectados...")
         else:
             if estado_scroll.get("hasSpinner"):
-                print("  [Instagram procesando solicitud...]")
+                print("  [Instagram procesando scroll...]")
                 await page.wait_for_timeout(2000)
                 continue
             intentos_sin_cambio += 1
-            print(
-                f"  Sin elementos nuevos ({intentos_sin_cambio}/{MAX_INTENTOS})..."
-            )
+            print(f"  Sin elementos nuevos ({intentos_sin_cambio}/{MAX_INTENTOS})...")
 
         await page.wait_for_timeout(int(random.uniform(1.8, 2.5) * 1000))
 
     await page.keyboard.press("Escape")
     await page.wait_for_timeout(1200)
 
-    result = list(usuarios)
-    if limit > 0:
-        result = result[:limit]
+    if target_limit > 0:
+        cuentas_extraidas = cuentas_extraidas[:target_limit]
 
-    print(f"Fase {tipo} finalizada. Total obtenido: {len(result)}")
-    return result
+    print(f"Fase {texto_es} finalizada. Total obtenido: {len(cuentas_extraidas)}")
+    return cuentas_extraidas
 
 
 # ─────────────────────────────────────────────────────────
@@ -970,6 +1036,7 @@ async def run(config=None):
                 tipo="following",
                 meta=following_num,
                 limit=config.max_following,
+                target_user=config.target_user,
             )
             await page.wait_for_timeout(2500)
         else:
@@ -982,6 +1049,7 @@ async def run(config=None):
                 tipo="followers",
                 meta=followers_num,
                 limit=config.max_followers,
+                target_user=config.target_user,
             )
         else:
             print("\n[MÓDULO] Extracción de seguidores omitida por configuración.")
