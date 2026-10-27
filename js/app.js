@@ -71,6 +71,7 @@ function showDashboard() {
     renderPosts();
     renderUsers('followers');
     renderUsers('following');
+    if (typeof renderBenfordTab === 'function') renderBenfordTab();
     setupSearch();
     setupTabs();
 }
@@ -360,6 +361,9 @@ function switchTab(tabName) {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     tabBtn.classList.add('active');
     panel.classList.add('active');
+    if (tabName === 'benford' && typeof onBenfordTabShown === 'function') {
+        onBenfordTabShown();
+    }
     try {
         localStorage.setItem(STORAGE_KEY_ACTIVE_TAB, tabName);
     } catch (e) {}

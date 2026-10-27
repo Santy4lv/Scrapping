@@ -6,6 +6,7 @@
     <title>Instagram Profile Analyzer</title>
     <meta name="description" content="Visualizador interactivo de datos extraídos de perfiles de Instagram">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --bg: #0a0a14;
@@ -370,10 +371,45 @@
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 
+        /* ── Benford Bot Detection ── */
+        .benford-verdict-card {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 24px; border-radius: 16px; margin-bottom: 24px; gap: 20px;
+            background: linear-gradient(135deg, rgba(139,92,246,0.1), rgba(6,182,212,0.1));
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .benford-score-box { text-align: center; min-width: 140px; }
+        .benford-score-num { font-size: 44px; font-weight: 800; line-height: 1; }
+        .benford-score-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-top: 6px; }
+        .benford-verdict-title { font-size: 20px; font-weight: 700; }
+        .benford-verdict-badge {
+            display: inline-block; padding: 4px 12px; border-radius: 20px;
+            font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .badge-organic { background: rgba(16,185,129,0.2); color: #34d399; border: 1px solid rgba(16,185,129,0.3); }
+        .badge-acceptable { background: rgba(59,130,246,0.2); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+        .badge-atypical { background: rgba(245,158,11,0.2); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+        .badge-botnet { background: rgba(239,68,68,0.2); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+
+        .series-toggle-bar { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+        .series-btn {
+            padding: 8px 16px; font-size: 13px; font-weight: 600; border-radius: 20px;
+            cursor: pointer; transition: all 0.2s; border: 1px solid var(--border);
+            background: rgba(255,255,255,0.03); color: var(--text-secondary);
+        }
+        .series-btn:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+        .series-btn.active { background: var(--gradient-primary); color: #fff; border-color: transparent; }
+
+        .benford-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .benford-table th { text-align: left; padding: 10px 12px; color: var(--text-dim); font-size: 11px; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+        .benford-table td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+        .benford-table tr:hover td { background: rgba(255,255,255,0.02); }
+
         /* ── Responsive ── */
         @media (max-width: 900px) {
-            .charts-grid { grid-template-columns: 1fr; }
+            .charts-grid { grid-template-columns: 1fr !important; }
             .profile-card { flex-direction: column; align-items: center; text-align: center; }
+            .benford-verdict-card { flex-direction: column; text-align: center; }
         }
         @media (max-width: 768px) {
             .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -463,6 +499,7 @@
                     <button class="tab" data-tab="posts">Publicaciones</button>
                     <button class="tab" data-tab="followers">Seguidores</button>
                     <button class="tab" data-tab="following">Seguidos</button>
+                    <button class="tab" data-tab="benford">🤖 Detección de Bots</button>
                 </div>
             </div>
 
@@ -518,12 +555,18 @@
                 </div>
                 <div class="users-grid" id="following-grid"></div>
             </div>
+
+            <!-- BENFORD BOT DETECTION -->
+            <div class="tab-panel" id="panel-benford">
+                <div id="benford-content"></div>
+            </div>
         </div>
     </div>
 
     <!-- Scripts Modulares -->
     <script src="js/storage.js"></script>
     <script src="js/benford.js"></script>
+    <script src="js/benford_ui.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>
