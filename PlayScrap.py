@@ -45,6 +45,9 @@ class ScraperConfig:
     max_comments_per_post: int = 0
     max_followers: int = 0
     max_following: int = 0
+    network_source: str = "followers"
+    scrape_network_metrics: bool = True
+    max_network_users: int = 0
     headless: bool = False
 
     @classmethod
@@ -63,6 +66,11 @@ class ScraperConfig:
         env_max_comments = int(os.getenv("MAX_COMMENTS_PER_POST", "0"))
         env_max_followers = int(os.getenv("MAX_FOLLOWERS", "0"))
         env_max_following = int(os.getenv("MAX_FOLLOWING", "0"))
+        env_network_source = os.getenv("NETWORK_SOURCE", "followers").strip().lower()
+        if env_network_source not in ("followers", "following", "both"):
+            env_network_source = "followers"
+        env_network_metrics = str_to_bool(os.getenv("SCRAPE_NETWORK_METRICS"), default=True)
+        env_max_network = int(os.getenv("MAX_NETWORK_USERS", "0"))
         env_headless = str_to_bool(os.getenv("HEADLESS"), default=False)
 
         # 2. Argumentos CLI para sobreescritura rápida
@@ -77,9 +85,37 @@ class ScraperConfig:
         parser.add_argument("--max-following", type=int, default=None, help="Límite de seguidos a extraer (0 = sin límite)")
         parser.add_argument("--headless", action="store_true", default=None, help="Ejecutar en modo headless (sin ventana gráfica)")
 
+        # Configuración de Red para análisis (Benford / Bots)
+        parser.add_argument(
+            "--network-source",
+            type=str,
+            choices=["followers", "following", "both"],
+            default=None,
+            help="Origen de la red para análisis: followers (defecto), following, o both",
+        )
+        parser.add_argument(
+            "--network-metrics",
+            dest="scrape_network_metrics",
+            action="store_true",
+            default=None,
+            help="Activar captura de métricas (seguidores/seguidos) por previsualización de cursor (hover)",
+        )
+        parser.add_argument(
+            "--no-network-metrics",
+            dest="scrape_network_metrics",
+            action="store_false",
+            help="Desactivar captura por cursor y solo recolectar nombres de usuario",
+        )
+        parser.add_argument(
+            "--max-network-users",
+            type=int,
+            default=None,
+            help="Límite manual de cuentas de la red a inspeccionar (0 = auto: <=400 todos, >400: 300)",
+        )
+
         # Presets rápidos
         parser.add_argument("--posts-only", action="store_true", help="Atajo: solo posts y comentarios (omite seguidores y seguidos)")
-        parser.add_argument("--network-only", action="store_true", help="Atajo: solo seguidores y seguidos (omite posts y comentarios)")
+        parser.add_argument("--network-only", action="store_true", help="Atajo: solo red de seguidores/seguidos (omite posts y comentarios)")
 
         # Toggles individuales de módulos
         parser.add_argument("--followers", dest="scrape_followers", action="store_true", default=None, help="Activar extracción de seguidores")
@@ -106,6 +142,21 @@ class ScraperConfig:
         max_following = parsed.max_following if parsed.max_following is not None else env_max_following
         headless = parsed.headless if parsed.headless is not None else env_headless
 
+        network_source = (parsed.network_source or env_network_source).lower()
+        if network_source not in ("followers", "following", "both"):
+            network_source = "followers"
+
+        scrape_network_metrics = (
+            parsed.scrape_network_metrics
+            if parsed.scrape_network_metrics is not None
+            else env_network_metrics
+        )
+        max_network_users = (
+            parsed.max_network_users
+            if parsed.max_network_users is not None
+            else env_max_network
+        )
+
         # Aplicación de toggles base
         followers = env_followers
         following = env_following
@@ -118,10 +169,42 @@ class ScraperConfig:
             following = False
             posts = True
         elif parsed.network_only:
-            followers = True
-            following = True
             posts = False
             comments = False
+            if network_source == "followers":
+                followers = True
+                following = False
+            elif network_source == "following":
+                followers = False
+                following = True
+            elif network_source == "both":
+                followers = True
+                following = True
+        else:
+            # Si no se pasó preset, alinear relaciones al origen de red solicitado
+            if parsed.network_source is not None:
+                if network_source == "followers":
+                    followers = True
+                    if parsed.scrape_following is None:
+                        following = False
+                elif network_source == "following":
+                    following = True
+                    if parsed.scrape_followers is None:
+                        followers = False
+                elif network_source == "both":
+                    followers = True
+                    following = True
+            elif parsed.scrape_followers is None and parsed.scrape_following is None:
+                # Comportamiento por defecto: solo seguidores si network_source es followers
+                if network_source == "followers":
+                    followers = True
+                    following = False
+                elif network_source == "following":
+                    followers = False
+                    following = True
+                elif network_source == "both":
+                    followers = True
+                    following = True
 
         # Sobreescritura individual de flags
         if parsed.scrape_followers is not None:
@@ -151,18 +234,21 @@ class ScraperConfig:
             max_comments_per_post=max_comments,
             max_followers=max_followers,
             max_following=max_following,
+            network_source=network_source,
+            scrape_network_metrics=scrape_network_metrics,
+            max_network_users=max_network_users,
             headless=headless,
         )
 
     def print_banner(self):
         """Muestra en terminal la configuración con la que iniciará el scraper."""
         f_fol = (
-            f"[✓ Activo] (Límite: {self.max_followers if self.max_followers > 0 else 'Sin límite'})"
+            f"[✓ Activo] (Límite: {self.max_followers if self.max_followers > 0 else 'Regla de Red'})"
             if self.scrape_followers
             else "[✗ Omitido]"
         )
         f_flw = (
-            f"[✓ Activo] (Límite: {self.max_following if self.max_following > 0 else 'Sin límite'})"
+            f"[✓ Activo] (Límite: {self.max_following if self.max_following > 0 else 'Regla de Red'})"
             if self.scrape_following
             else "[✗ Omitido]"
         )
@@ -177,10 +263,22 @@ class ScraperConfig:
             else "[✗ Omitido]"
         )
 
+        regla_red = (
+            f"{self.max_network_users} cuentas (manual)"
+            if self.max_network_users > 0
+            else "Auto (<=400 todos, >400: 300)"
+        )
+        modo_red = (
+            f"[✓ Captura Cursor/Hover activa] ({regla_red})"
+            if self.scrape_network_metrics
+            else "[✗ Solo nombres]"
+        )
+
         print("\n" + "=" * 62)
         print(" ⚙️   CONFIGURACIÓN MODULAR DE EXTRACCIÓN")
         print("=" * 62)
         print(f"  🎯 Usuario objetivo:       {self.target_user}")
+        print(f"  🌐 Red seleccionada:       {self.network_source.upper()} | {modo_red}")
         print(f"  👥 Seguidores (followers): {f_fol}")
         print(f"  🫂 Seguidos (following):   {f_flw}")
         print(f"  📸 Publicaciones (posts):  {f_pst}")
@@ -199,6 +297,45 @@ def parsear_numero(texto):
     limpio = texto.replace(".", "").replace(",", "")
     match = re.search(r"\d+", limpio)
     return int(match.group(0)) if match else 0
+
+
+def parsear_numero_metricas(texto: str) -> int:
+    """Parsea números de métricas admitiendo sufijos k, m, mil y separadores locales."""
+    if not texto:
+        return 0
+    t = texto.strip().lower().replace(" ", "")
+    m_k = re.search(r"([\d.,]+)(?:k|mil)", t)
+    if m_k:
+        val_str = m_k.group(1).replace(",", ".")
+        try:
+            return int(float(val_str) * 1000)
+        except ValueError:
+            pass
+    m_m = re.search(r"([\d.,]+)(?:m|mill[oó]n|millones)", t)
+    if m_m:
+        val_str = m_m.group(1).replace(",", ".")
+        try:
+            return int(float(val_str) * 1000000)
+        except ValueError:
+            pass
+    limpio = re.sub(r"[^\d]", "", t)
+    return int(limpio) if limpio else 0
+
+
+def calcular_meta_red(total_disponible: int, user_limit: int = 0) -> int:
+    """
+    Calcula la meta de usuarios a extraer de la red según la regla de muestreo:
+      - Si total <= 400: se extraen todos (100%).
+      - Si total > 400: se extraen exactamente 300 (garantizando >= 200).
+      - Si user_limit > 0: se respeta el límite manual definido.
+    """
+    if user_limit > 0:
+        return user_limit
+    if total_disponible <= 0:
+        return 0
+    if total_disponible <= 400:
+        return total_disponible
+    return 300
 
 
 def extraer_hashtags(texto):
@@ -274,13 +411,29 @@ async def scroll_con_rebote(page):
 # ─────────────────────────────────────────────────────────
 # Extracción de seguidores / seguidos
 # ─────────────────────────────────────────────────────────
-async def extraer_relaciones(page, tipo="following", meta=0, limit=0):
+async def extraer_relaciones(
+    page,
+    tipo="followers",
+    meta=0,
+    limit=0,
+    extraer_metricas=True,
+    target_user=""
+):
+    """
+    Abre la modal de seguidores/seguidos y extrae la lista de cuentas.
+    Si extraer_metricas es True, utiliza interacción con cursor (hover) para capturar
+    las métricas de seguidores, seguidos y publicaciones de cada perfil en la muestra.
+    
+    Regla de muestra: <= 400 extrae todos; > 400 extrae 300 cuentas.
+    """
     texto_es = "seguidos" if tipo == "following" else "seguidores"
-    target_limit = limit if limit > 0 else meta
+    target_limit = calcular_meta_red(meta, user_limit=limit)
     limite_txt = f"{target_limit}" if target_limit > 0 else "todos disponibles"
 
     print(f"\n==========================================")
-    print(f" Extrayendo {tipo} (Objetivo: {limite_txt})")
+    print(f" Extrayendo red: {tipo.upper()} (Meta: {limite_txt})")
+    if extraer_metricas:
+        print(f" [MODO HOVER] Captura de métricas por previsualización de cursor activa")
     print(f"==========================================")
 
     selector_btn = (
@@ -295,15 +448,20 @@ async def extraer_relaciones(page, tipo="following", meta=0, limit=0):
         return []
 
     dialog = page.locator("div[role='dialog']")
-    await dialog.wait_for(state="visible", timeout=10000)
+    try:
+        await dialog.wait_for(state="visible", timeout=10000)
+    except Exception as e:
+        print(f"No se detectó el diálogo modal: {e}")
+        return []
     await page.wait_for_timeout(1800)
 
-    usuarios = set()
+    cuentas_dict = {}
     intentos_sin_cambio = 0
-    MAX_INTENTOS = 3
+    MAX_INTENTOS = 4
 
     while intentos_sin_cambio < MAX_INTENTOS:
-        nuevos = await dialog.locator("a[role='link']").evaluate_all(
+        # Obtener nombres de usuario visibles en los enlaces actuales del modal
+        nuevos_elementos = await dialog.locator("a[role='link']").evaluate_all(
             r"""elements => {
             const list = [];
             for (const el of elements) {
@@ -318,37 +476,112 @@ async def extraer_relaciones(page, tipo="following", meta=0, limit=0):
         }"""
         )
 
-        prev_count = len(usuarios)
-        usuarios.update(nuevos)
-        total_actual = len(usuarios)
+        prev_count = len(cuentas_dict)
 
+        for uname in nuevos_elementos:
+            if uname.lower() == target_user.lower():
+                continue
+            if uname in cuentas_dict:
+                continue
+            if target_limit > 0 and len(cuentas_dict) >= target_limit:
+                break
+
+            metricas_usuario = {
+                "usuario": uname,
+                "seguidores": 0,
+                "seguidos": 0,
+                "publicaciones": 0
+            }
+
+            if extraer_metricas:
+                try:
+                    user_link = dialog.locator(f"a[role='link'][href*='/{uname}/']").first
+                    if await user_link.is_visible():
+                        await user_link.scroll_into_view_if_needed()
+                        # Mover cursor fuera para resetear evento hover
+                        await page.mouse.move(10, 10)
+                        await page.wait_for_timeout(80)
+                        await user_link.hover(timeout=2000)
+                        await page.wait_for_timeout(500)
+
+                        # Capturar texto de la tarjeta flotante emergente
+                        card_text = await page.evaluate(r"""() => {
+                            const nodes = Array.from(document.querySelectorAll(
+                                'div[data-pressable-container="true"], div[role="tooltip"], div[style*="z-index"], div[style*="position: fixed"], div[style*="position: absolute"]'
+                            ));
+                            const candidates = [];
+                            for (const node of nodes) {
+                                const text = node.innerText || '';
+                                if (/(?:seguidores|followers)/i.test(text) && /(?:posts|publicaciones)/i.test(text) && text.length < 400) {
+                                    candidates.push(text);
+                                }
+                            }
+                            if (candidates.length > 0) {
+                                candidates.sort((a, b) => a.length - b.length);
+                                return candidates[0];
+                            }
+                            return '';
+                        }""")
+
+                        if card_text:
+                            m_posts = re.search(r"\b(\d+[\d.,kKmM]*)\s*\|?\s*(?:posts|publicaciones)\b", card_text, re.I)
+                            m_fol = re.search(r"\b(\d+[\d.,kKmM]*)\s*\|?\s*(?:followers|seguidores)\b", card_text, re.I)
+                            m_flw = re.search(r"\b(\d+[\d.,kKmM]*)\s*\|?\s*(?:following|seguidos)\b", card_text, re.I)
+
+                            metricas_usuario["publicaciones"] = parsear_numero_metricas(m_posts.group(1)) if m_posts else 0
+                            metricas_usuario["seguidores"] = parsear_numero_metricas(m_fol.group(1)) if m_fol else 0
+                            metricas_usuario["seguidos"] = parsear_numero_metricas(m_flw.group(1)) if m_flw else 0
+
+                            idx = len(cuentas_dict) + 1
+                            print(
+                                f"  [RED] [{idx}/{target_limit}] @{uname} -> "
+                                f"{metricas_usuario['seguidores']} seguidores | "
+                                f"{metricas_usuario['seguidos']} seguidos | "
+                                f"{metricas_usuario['publicaciones']} posts"
+                            )
+                        else:
+                            idx = len(cuentas_dict) + 1
+                            print(f"  [RED] [{idx}/{target_limit}] @{uname} -> (tarjeta no desplegada)")
+
+                        await page.wait_for_timeout(int(random.uniform(120, 260)))
+                except Exception as err:
+                    idx = len(cuentas_dict) + 1
+                    print(f"  [RED] [{idx}/{target_limit}] @{uname} -> (error en hover: {err})")
+            else:
+                idx = len(cuentas_dict) + 1
+                print(f"  [RED] [{idx}/{target_limit}] @{uname}")
+
+            cuentas_dict[uname] = metricas_usuario
+
+        total_actual = len(cuentas_dict)
         if target_limit > 0 and total_actual >= target_limit:
-            print(f"[COMPLETADO] Se alcanzó la meta establecida: {total_actual}/{target_limit}")
+            print(f"\n[COMPLETADO] Se alcanzó la meta establecida: {total_actual}/{target_limit}")
             break
 
         estado_scroll = await scroll_con_rebote(page)
 
         if total_actual > prev_count:
             intentos_sin_cambio = 0
-            print(f"Progreso {tipo}: {total_actual} recolectados...")
+            print(f"Progreso {tipo}: {total_actual}/{target_limit} procesados...")
         else:
             if estado_scroll.get("hasSpinner"):
                 print("  [Instagram procesando solicitud...]")
                 await page.wait_for_timeout(2000)
                 continue
             intentos_sin_cambio += 1
-            print(
-                f"  Sin elementos nuevos ({intentos_sin_cambio}/{MAX_INTENTOS})..."
-            )
+            print(f"  Sin elementos nuevos ({intentos_sin_cambio}/{MAX_INTENTOS})...")
 
         await page.wait_for_timeout(int(random.uniform(1.8, 2.5) * 1000))
 
-    await page.keyboard.press("Escape")
-    await page.wait_for_timeout(1200)
+    try:
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(1200)
+    except Exception:
+        pass
 
-    result = list(usuarios)
-    if limit > 0:
-        result = result[:limit]
+    result = list(cuentas_dict.values())
+    if target_limit > 0 and len(result) > target_limit:
+        result = result[:target_limit]
 
     print(f"Fase {tipo} finalizada. Total obtenido: {len(result)}")
     return result
@@ -898,18 +1131,18 @@ async def run(config=None):
         lines = [line.strip() for line in header_text.splitlines() if line.strip()]
 
         m_posts = re.search(
-            r"([\d.,kKmM]+)\s+publicaci\w*", header_text, re.IGNORECASE
+            r"([\d.,kKmM]+)\s*(?:publicaci\w*|posts)\b", header_text, re.IGNORECASE
         )
         m_followers = re.search(
-            r"([\d.,kKmM]+)\s+seguidores", header_text, re.IGNORECASE
+            r"([\d.,kKmM]+)\s*(?:seguidores|followers)\b", header_text, re.IGNORECASE
         )
         m_following = re.search(
-            r"([\d.,kKmM]+)\s+seguidos", header_text, re.IGNORECASE
+            r"([\d.,kKmM]+)\s*(?:seguidos|following)\b", header_text, re.IGNORECASE
         )
 
-        posts_num = parsear_numero(m_posts.group(0)) if m_posts else 0
-        followers_num = parsear_numero(m_followers.group(0)) if m_followers else 0
-        following_num = parsear_numero(m_following.group(0)) if m_following else 0
+        posts_num = parsear_numero_metricas(m_posts.group(1)) if m_posts else 0
+        followers_num = parsear_numero_metricas(m_followers.group(1)) if m_followers else 0
+        following_num = parsear_numero_metricas(m_following.group(1)) if m_following else 0
 
         # Biografía
         bio_lines = []
@@ -962,29 +1195,67 @@ async def run(config=None):
             except Exception as err:
                 print(f"    [AVISO] Error al descargar foto de perfil: {err}")
 
-        # ── 2. Seguidores y Seguidos (Módulos opcionales) ──
-        seguidos = []
+        # ── 2. Seguidores y Seguidos (Módulos de Red) ──
+        extract_metrics_followers = config.scrape_network_metrics and (
+            config.network_source in ("followers", "both")
+        )
+        extract_metrics_following = config.scrape_network_metrics and (
+            config.network_source in ("following", "both")
+        )
+
+        seguidos_raw = []
         if config.scrape_following:
-            seguidos = await extraer_relaciones(
+            seguidos_raw = await extraer_relaciones(
                 page,
                 tipo="following",
                 meta=following_num,
-                limit=config.max_following,
+                limit=config.max_following or config.max_network_users,
+                extraer_metricas=extract_metrics_following,
+                target_user=config.target_user,
             )
             await page.wait_for_timeout(2500)
         else:
             print("\n[MÓDULO] Extracción de seguidos omitida por configuración.")
 
-        seguidores = []
+        seguidores_raw = []
         if config.scrape_followers:
-            seguidores = await extraer_relaciones(
+            seguidores_raw = await extraer_relaciones(
                 page,
                 tipo="followers",
                 meta=followers_num,
-                limit=config.max_followers,
+                limit=config.max_followers or config.max_network_users,
+                extraer_metricas=extract_metrics_followers,
+                target_user=config.target_user,
             )
         else:
             print("\n[MÓDULO] Extracción de seguidores omitida por configuración.")
+
+        # Consolidar cuentas detalladas con métricas para análisis de red / Benford
+        origen_es = (
+            "seguidores" if config.network_source == "followers"
+            else ("seguidos" if config.network_source == "following" else "ambos")
+        )
+
+        cuentas_red = []
+        if config.network_source in ("followers", "both"):
+            for item in seguidores_raw:
+                if isinstance(item, dict) and item not in cuentas_red:
+                    cuentas_red.append(item)
+        if config.network_source in ("following", "both"):
+            existentes = {c["usuario"] for c in cuentas_red}
+            for item in seguidos_raw:
+                if isinstance(item, dict) and item["usuario"] not in existentes:
+                    cuentas_red.append(item)
+
+        total_red_disponible = (
+            followers_num
+            if config.network_source == "followers"
+            else (
+                following_num
+                if config.network_source == "following"
+                else followers_num + following_num
+            )
+        )
 
         # ── 3. Publicaciones (Módulo opcional) ──
         publicaciones = []
@@ -1040,14 +1311,24 @@ async def run(config=None):
             "publicaciones_count": posts_num,
             "total_seguidores": followers_num,
             "total_seguidos": following_num,
-            "seguidores_recolectados": len(seguidores),
-            "seguidos_recolectados": len(seguidos),
+            "seguidores_recolectados": len(seguidores_raw),
+            "seguidos_recolectados": len(seguidos_raw),
             "posts_recolectados": len(publicaciones),
             "configuracion": safe_config,
-            "seguidores": seguidores,
-            "seguidos": seguidos,
+            "red_analizada": {
+                "tipo_red": origen_es,
+                "total_en_perfil": total_red_disponible,
+                "muestra_extraida": len(cuentas_red),
+                "cuentas": cuentas_red,
+            },
             "publicaciones": publicaciones,
         }
+
+        # Guardar lista de cuentas con sus métricas bajo su clave correspondiente
+        if config.scrape_followers:
+            resultado["seguidores"] = seguidores_raw
+        if config.scrape_following:
+            resultado["seguidos"] = seguidos_raw
 
         exportar_json(resultado, f"{config.target_user}_datos.json")
 
