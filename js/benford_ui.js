@@ -58,9 +58,9 @@ function renderBenfordView() {
     if (sources.length > 1) {
         toggleHtml = `
             <div class="series-toggle-bar">
-                ${sources.includes('followers') ? `<button class="series-btn ${currentBenfordSeries === 'followers' ? 'active' : ''}" onclick="switchBenfordSeries('followers')">👥 Seguidores (${currentBenfordAnalysis.statFollowers?.nTotal || 0})</button>` : ''}
-                ${sources.includes('following') ? `<button class="series-btn ${currentBenfordSeries === 'following' ? 'active' : ''}" onclick="switchBenfordSeries('following')">👤 Seguidos (${currentBenfordAnalysis.statFollowing?.nTotal || 0})</button>` : ''}
-                ${sources.includes('both') ? `<button class="series-btn ${currentBenfordSeries === 'both' ? 'active' : ''}" onclick="switchBenfordSeries('both')">🌐 Red Consolidada (${currentBenfordAnalysis.statCombined?.nTotal || 0})</button>` : ''}
+                ${sources.includes('followers') ? `<button class="series-btn ${currentBenfordSeries === 'followers' ? 'active' : ''}" onclick="switchBenfordSeries('followers')">👥 Seguidores (${currentBenfordAnalysis.statFollowers?.nTotal || 0} de ${currentBenfordAnalysis.statFollowers?.totalRaw || 0})</button>` : ''}
+                ${sources.includes('following') ? `<button class="series-btn ${currentBenfordSeries === 'following' ? 'active' : ''}" onclick="switchBenfordSeries('following')">👤 Seguidos (${currentBenfordAnalysis.statFollowing?.nTotal || 0} de ${currentBenfordAnalysis.statFollowing?.totalRaw || 0})</button>` : ''}
+                ${sources.includes('both') ? `<button class="series-btn ${currentBenfordSeries === 'both' ? 'active' : ''}" onclick="switchBenfordSeries('both')">🌐 Red Consolidada (${currentBenfordAnalysis.statCombined?.nTotal || 0} de ${currentBenfordAnalysis.statCombined?.totalRaw || 0})</button>` : ''}
             </div>
         `;
     }
@@ -103,7 +103,7 @@ function renderBenfordView() {
         ${toggleHtml}
 
         <!-- Tarjetas Estadísticas -->
-        <div class="stats-grid" style="margin-bottom: 24px;">
+        <div class="stats-grid" style="margin-bottom: 20px;">
             <div class="stat-card glass">
                 <div class="stat-icon">📐</div>
                 <div class="stat-value" style="font-size: 24px;">${seriesData.chi2}</div>
@@ -122,8 +122,25 @@ function renderBenfordView() {
             <div class="stat-card glass">
                 <div class="stat-icon">📊</div>
                 <div class="stat-value" style="font-size: 24px;">${seriesData.nTotal}</div>
-                <div class="stat-label">Muestra Analizada (N)</div>
+                <div class="stat-label">Muestra Benford (dígitos 1-9)</div>
             </div>
+            <div class="stat-card glass">
+                <div class="stat-icon">👻</div>
+                <div class="stat-value" style="font-size: 24px; color: ${seriesData.pctCero > 15 ? '#f87171' : seriesData.cuentasCero > 0 ? '#fbbf24' : '#34d399'};">
+                    ${seriesData.cuentasCero || 0}
+                </div>
+                <div class="stat-label">Cuentas en Cero (${seriesData.pctCero || 0}%)</div>
+            </div>
+        </div>
+
+        <!-- Auditoría Forense de Muestra y Cuentas Cero -->
+        <div class="benford-sample-banner glass" style="margin-bottom: 24px; padding: 14px 18px; border-radius: 12px; border-left: 4px solid ${seriesData.cuentasCero > 0 ? (seriesData.pctCero > 15 ? '#f87171' : '#f59e0b') : '#10b981'}; display: flex; align-items: center; justify-content: space-between; gap: 16px;">
+            <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.5;">
+                <strong style="color: var(--text-primary); font-size: 14px;">🔍 Auditoría de Muestra:</strong>
+                De <strong>${seriesData.totalRaw || seriesData.nTotal}</strong> cuentas extraídas, <strong>${seriesData.nTotal}</strong> poseen métricas evaluables (primer dígito del 1 al 9) para la Ley de Benford.
+                ${seriesData.cuentasCero > 0 ? `<br><span style="color: ${seriesData.pctCero > 15 ? '#f87171' : 'var(--amber)'};">⚠️ <strong>${seriesData.cuentasCero} cuentas (${seriesData.pctCero}%)</strong> registran 0 seguidores o seguidos. En análisis forense digital, estas cuentas se auditan por separado como posibles perfiles bot, inactivas o creadas recientemente sin actividad social.</span>` : '<br><span style="color: #34d399;">✅ El 100% de las cuentas extraídas posee métricas numéricas activas para el modelo logarítmico.</span>'}
+            </div>
+            ${seriesData.cuentasCero > 0 ? `<div style="text-align: right; min-width: 110px;"><div style="font-size: 22px; font-weight: 800; color: ${seriesData.pctCero > 15 ? '#f87171' : '#f59e0b'};">${seriesData.pctCero}%</div><div style="font-size: 11px; color: var(--text-dim);">Cuentas Inactivas</div></div>` : ''}
         </div>
 
         <!-- Gráfico y Tabla -->

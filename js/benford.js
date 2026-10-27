@@ -39,7 +39,7 @@ function chiSquareSurvival8df(chi2) {
     return Math.max(0.0, Math.min(1.0, p));
 }
 
-function calculateHumanScore(chi2Val, madVal, n) {
+function calculateHumanScore(chi2Val, madVal, n, zeroPct = 0) {
     const chi2Critico = 15.507;
     const madCritico = 0.015;
     const ratioChi2 = chi2Val / chi2Critico;
@@ -47,6 +47,13 @@ function calculateHumanScore(chi2Val, madVal, n) {
 
     const distancia = 0.45 * Math.min(3.0, ratioChi2) + 0.55 * Math.min(3.0, ratioMad);
     let humanPct = 100.0 / (1.0 + Math.pow(distancia / 1.5, 2.4));
+
+    // Ajuste forense si existe alta concentración de cuentas con 0 métricas (fantasmas/inactivas)
+    if (zeroPct > 15) {
+        const penalizacionCero = Math.min(25, (zeroPct - 15) * 1.2);
+        humanPct -= penalizacionCero;
+    }
+
     humanPct = Math.max(3.0, Math.min(99.0, humanPct));
 
     let nivel = '';
@@ -66,6 +73,10 @@ function calculateHumanScore(chi2Val, madVal, n) {
         veredicto = 'Alta Probabilidad de Comportamiento Artificial / Botnet';
     }
 
+    if (zeroPct > 20) {
+        veredicto += ` (Atención: ${zeroPct}% cuentas con 0 métricas)`;
+    }
+
     if (n < 40) {
         veredicto += ` (Muestra preliminar N=${n})`;
     }
@@ -79,14 +90,43 @@ function calculateHumanScore(chi2Val, madVal, n) {
 
 function analyzeBenfordSeries(numbers, seriesName) {
     const digits = [];
+    let zeroCount = 0;
+    let totalRaw = 0;
+
     (numbers || []).forEach(v => {
+        totalRaw++;
         const num = (typeof v === 'number') ? v : parseInt(v, 10);
+        if (num === 0 || isNaN(num)) {
+            zeroCount++;
+        }
         const d = extractFirstSignificantDigit(num);
         if (d !== null) digits.push(d);
     });
 
     const n = digits.length;
-    if (n === 0) return null;
+    if (n === 0 && zeroCount === 0) return null;
+
+    const zeroPct = totalRaw > 0 ? Math.round((zeroCount / totalRaw) * 1000) / 10 : 0;
+
+    if (n === 0) {
+        return {
+            nombre: seriesName,
+            totalRaw: totalRaw,
+            cuentasCero: zeroCount,
+            pctCero: 100.0,
+            nTotal: 0,
+            conteosObservados: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0 },
+            porcentajesObservados: {},
+            porcentajesEsperados: {},
+            chi2: 99.9,
+            pValue: 0.0,
+            mad: 0.1,
+            ksDistance: 1.0,
+            humanScore: 5.0,
+            nivelConformidad: 'No Conformidad Severa (Anómalo)',
+            veredicto: '100% Cuentas con 0 métricas (Red Fantasma / Bots Inactivos)'
+        };
+    }
 
     const conteos = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0 };
     digits.forEach(d => { conteos[d]++; });
@@ -122,7 +162,7 @@ function analyzeBenfordSeries(numbers, seriesName) {
         if (diff > ksMax) ksMax = diff;
     }
 
-    const scoreInfo = calculateHumanScore(chi2Val, madVal, n);
+    const scoreInfo = calculateHumanScore(chi2Val, madVal, n, zeroPct);
 
     const pctObsRound = {};
     const pctEspRound = {};
@@ -133,6 +173,9 @@ function analyzeBenfordSeries(numbers, seriesName) {
 
     return {
         nombre: seriesName,
+        totalRaw: totalRaw,
+        cuentasCero: zeroCount,
+        pctCero: zeroPct,
         nTotal: n,
         conteosObservados: conteos,
         porcentajesObservados: pctObsRound,

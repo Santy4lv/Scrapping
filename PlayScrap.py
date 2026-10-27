@@ -196,28 +196,47 @@ def parsear_numero(texto):
 
 
 def parsear_numero_metricas(texto: str) -> int:
-    """Parsea números de métricas admitiendo sufijos k, m, mil y separadores locales."""
+    """Parsea números de métricas admitiendo sufijos k, m, b, mil, mill, millones y separadores locales."""
     if not texto:
         return 0
-    t = texto.strip().lower().replace(" ", "")
-    m_k = re.search(r"\b([\d.,]+)(?:k|mil)\b", t)
-    if m_k:
-        val_str = m_k.group(1).replace(",", ".")
-        try:
-            return int(float(val_str) * 1000)
-        except ValueError:
-            pass
-    m_m = re.search(r"\b([\d.,]+)(?:m|mill[oó]n|millones)\b", t)
+    t = texto.strip().lower()
+    t = re.sub(r"\bde\b", "", t).strip()
+
+    # Millones: m, mill, mill., millón, millones
+    m_m = re.search(r"([\d.,]+)\s*(?:m|mill\.?|mill[oó]n(?:es)?)\b", t)
     if m_m:
-        val_str = m_m.group(1).replace(",", ".")
+        val_str = (
+            m_m.group(1).replace(".", "").replace(",", ".")
+            if ("," in m_m.group(1) and "." in m_m.group(1))
+            else m_m.group(1).replace(",", ".")
+        )
         try:
-            return int(float(val_str) * 1000000)
+            return int(float(val_str) * 1_000_000)
         except ValueError:
             pass
-    m_num = re.search(r"\b(\d+[\d.,]*)\b", t)
+
+    # Miles: k, mil
+    m_k = re.search(r"([\d.,]+)\s*(?:k|mil)\b", t)
+    if m_k:
+        val_str = (
+            m_k.group(1).replace(".", "").replace(",", ".")
+            if ("," in m_k.group(1) and "." in m_k.group(1))
+            else m_k.group(1).replace(",", ".")
+        )
+        try:
+            return int(float(val_str) * 1_000)
+        except ValueError:
+            pass
+
+    # Números enteros o con separadores de miles estándar (e.g. 1.234, 1,234, 500, 0)
+    m_num = re.search(r"(\d[\d., ]*)", t)
     if m_num:
-        limpio = re.sub(r"[^\d]", "", m_num.group(1))
+        raw_num = m_num.group(1).strip()
+        if raw_num == "0":
+            return 0
+        limpio = re.sub(r"[^\d]", "", raw_num)
         return int(limpio) if limpio else 0
+
     return 0
 
 
@@ -404,14 +423,51 @@ async def extraer_relaciones(page, tipo="following", meta=0, limit=0, target_use
                     if card_data:
                         break
 
+                # Si la tarjeta no respondió a tiempo, reintentar hover una vez con re-enfoque
+                if not card_data:
+                    await page.mouse.move(0, 0)
+                    await page.wait_for_timeout(150)
+                    await link.hover()
+                    for _ in range(3):
+                        await page.wait_for_timeout(300)
+                        card_data = await page.evaluate(r"""(targetUser) => {
+                            const dialogList = document.querySelector("div[role='dialog']");
+                            const cards = Array.from(document.querySelectorAll("div, section"))
+                                .filter(el => {
+                                    const t = (el.innerText || '').trim();
+                                    if (t.length < 20 || t.length > 450) return false;
+                                    if (dialogList && el.contains(dialogList)) return false;
+
+                                    const userRegex = new RegExp("(?:^|\\s|@)" + targetUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "(?:\\s|$|\\n)", "i");
+                                    if (!userRegex.test(t)) return false;
+
+                                    const hasPosts = /\b(posts|publicaci\w*)\b/i.test(t);
+                                    const hasFlw = /\b(followers|seguidores)\b/i.test(t);
+                                    return hasPosts && hasFlw;
+                                })
+                                .sort((a, b) => a.innerText.length - b.innerText.length);
+                            return cards.length > 0 ? cards[0].innerText : '';
+                        }""", u)
+                        if card_data:
+                            break
+
                 flw = 0
                 flg = 0
                 pst = 0
 
                 if card_data:
-                    m_pst = re.search(r"(\d+[\d.,kKmM]*)\s*(?:publicaci\w*|posts)", card_data, re.IGNORECASE) or re.search(r"(?:publicaci\w*|posts)[\s:]*(\d+[\d.,kKmM]*)", card_data, re.IGNORECASE)
-                    m_flw = re.search(r"(\d+[\d.,kKmM]*)\s*(?:seguidores|followers)", card_data, re.IGNORECASE) or re.search(r"(?:seguidores|followers)[\s:]*(\d+[\d.,kKmM]*)", card_data, re.IGNORECASE)
-                    m_flg = re.search(r"(\d+[\d.,kKmM]*)\s*(?:seguidos|following)", card_data, re.IGNORECASE) or re.search(r"(?:seguidos|following)[\s:]*(\d+[\d.,kKmM]*)", card_data, re.IGNORECASE)
+                    m_pst = (
+                        re.search(r"(\d+[\d.,\s]*(?:k|m|mil|mill\.?|mill[oó]n(?:es)?)?)\s*(?:publicaci\w*|posts)", card_data, re.IGNORECASE)
+                        or re.search(r"(?:publicaci\w*|posts)[\s:]*(\d+[\d.,\s]*(?:k|m|mil|mill\.?|mill[oó]n(?:es)?)?)", card_data, re.IGNORECASE)
+                    )
+                    m_flw = (
+                        re.search(r"(\d+[\d.,\s]*(?:k|m|mil|mill\.?|mill[oó]n(?:es)?)?)\s*(?:seguidores|followers)", card_data, re.IGNORECASE)
+                        or re.search(r"(?:seguidores|followers)[\s:]*(\d+[\d.,\s]*(?:k|m|mil|mill\.?|mill[oó]n(?:es)?)?)", card_data, re.IGNORECASE)
+                    )
+                    m_flg = (
+                        re.search(r"(\d+[\d.,\s]*(?:k|m|mil|mill\.?|mill[oó]n(?:es)?)?)\s*(?:seguidos|following)", card_data, re.IGNORECASE)
+                        or re.search(r"(?:seguidos|following)[\s:]*(\d+[\d.,\s]*(?:k|m|mil|mill\.?|mill[oó]n(?:es)?)?)", card_data, re.IGNORECASE)
+                    )
 
                     if m_pst: pst = parsear_numero_metricas(m_pst.group(1))
                     if m_flw: flw = parsear_numero_metricas(m_flw.group(1))
