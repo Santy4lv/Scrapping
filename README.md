@@ -135,3 +135,24 @@ python bigfive_analyzer.py sausage_player_datos.json --offline
 Al ejecutarse genera:
 - Resumen enriquecido en la consola con arquetipo de personalidad, síntesis psicológica y fortalezas conductuales.
 - Reporte web interactivo `{usuario}_bigfive_analisis.html` con gráfico radar de dimensiones OCEAN, avatar del perfil, insignias de motor de análisis y justificaciones con evidencia real.
+
+---
+
+## 📐 Detección Forense de Bots mediante la Ley de Benford
+
+Módulo de auditoría estadística que evalúa si la red de seguidores y seguidos de una cuenta se comporta de manera orgánica o presenta anomalías típicas de granjas de bots o compra de seguidores:
+
+```bash
+# Ejecución interactiva (detecta archivos json disponibles)
+python benford_analyzer.py
+
+# Analizar un archivo específico
+python benford_analyzer.py sausage_player_datos.json
+
+# Ejecutar sin abrir automáticamente el navegador
+python benford_analyzer.py sausage_player_datos.json --no-browser
+```
+
+Al ejecutarse genera:
+- Diagnóstico estadístico en terminal con frecuencias dígito a dígito (1 al 9), **Chi-cuadrado ($\chi^2$)**, **$p\text{-value}$**, **Desviación Absoluta Media (MAD de Nigrini)** y **Porcentaje de Verosimilitud Humana (% Human Likeness)**.
+- Reporte interactivo `{usuario}_benford_analisis.html` con gráfica comparativa en **Chart.js** (Curva Teórica de Benford vs. Frecuencia Real Observada) y desglose de métricas.
