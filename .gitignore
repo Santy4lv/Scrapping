@@ -17,9 +17,8 @@ ENV/
 .idea/
 
 # Documentación
-Documentación Scraping.pdf
-Documentación Scrappy.pdf
-Documentación.docx
+*.pdf
+*.docx
 
 # Archivos de datos generados
 *.csv
