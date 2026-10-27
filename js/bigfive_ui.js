@@ -99,6 +99,34 @@ async function executeBigFiveAnalysis() {
     }
 }
 
+const BIGFIVE_TRAIT_PALETTES = {
+    openness: {
+        color: '#06b6d4',
+        gradient: 'linear-gradient(135deg, #06b6d4, #0284c7)',
+        glow: 'rgba(6, 182, 212, 0.4)'
+    },
+    conscientiousness: {
+        color: '#8b5cf6',
+        gradient: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
+        glow: 'rgba(139, 92, 246, 0.4)'
+    },
+    extraversion: {
+        color: '#f59e0b',
+        gradient: 'linear-gradient(135deg, #f59e0b, #d97706)',
+        glow: 'rgba(245, 158, 11, 0.4)'
+    },
+    agreeableness: {
+        color: '#10b981',
+        gradient: 'linear-gradient(135deg, #10b981, #059669)',
+        glow: 'rgba(16, 185, 129, 0.4)'
+    },
+    neuroticism: {
+        color: '#ec4899',
+        gradient: 'linear-gradient(135deg, #ec4899, #f43f5e)',
+        glow: 'rgba(236, 72, 153, 0.4)'
+    }
+};
+
 function renderBigFiveAnalysisView(res) {
     const container = document.getElementById('bigfive-content');
     if (!container || !res) return;
@@ -114,25 +142,42 @@ function renderBigFiveAnalysisView(res) {
     let traitsHtml = '';
     (res.rasgos || []).forEach(t => {
         const score = Math.round(t.score);
-        let barColor = t.trait_id === 'neuroticism'
-            ? (score > 50 ? 'linear-gradient(135deg, #f59e0b, #ef4444)' : 'linear-gradient(135deg, #10b981, #06b6d4)')
-            : 'var(--gradient-primary)';
+        const palette = BIGFIVE_TRAIT_PALETTES[t.trait_id] || {
+            color: '#3b82f6',
+            gradient: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+            glow: 'rgba(59, 130, 246, 0.4)'
+        };
+
+        let barColor = palette.gradient;
+        let scoreColor = palette.color;
+
+        // Neuroticismo / Reactividad: si es alto alerta ámbar/rojo; si es bajo/estable verde/cian
+        if (t.trait_id === 'neuroticism') {
+            if (score > 50) {
+                barColor = 'linear-gradient(135deg, #f59e0b, #ef4444)';
+                scoreColor = '#f87171';
+            } else {
+                barColor = 'linear-gradient(135deg, #10b981, #06b6d4)';
+                scoreColor = '#34d399';
+            }
+        }
+
         const reasonsList = (t.reasons || []).map(r => `<li>${escapeHtml(r)}</li>`).join('');
 
         traitsHtml += `
-            <div class="trait-card glass">
+            <div class="trait-card glass" style="border-top: 3px solid ${scoreColor};">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
                     <div>
                         <h4 style="font-size: 15px; font-weight: 700; color: var(--text-primary);">${escapeHtml(t.trait_name)}</h4>
                         <span style="font-size: 11px; text-transform: uppercase; color: var(--text-dim);">${escapeHtml(t.trait_en)}</span>
                     </div>
                     <div style="text-align: right;">
-                        <span style="font-size: 18px; font-weight: 800; color: var(--cyan);">${score}%</span>
+                        <span style="font-size: 18px; font-weight: 800; color: ${scoreColor};">${score}%</span>
                         <div style="font-size: 11px; font-weight: 600; color: var(--text-secondary);">${escapeHtml(t.level)}</div>
                     </div>
                 </div>
                 <div class="trait-progress-track">
-                    <div class="trait-progress-fill" style="width: ${score}%; background: ${barColor};"></div>
+                    <div class="trait-progress-fill" style="width: ${score}%; background: ${barColor}; box-shadow: 0 0 10px ${palette.glow};"></div>
                 </div>
                 <p style="font-size: 12px; color: var(--text-secondary); margin: 10px 0 8px 0; line-height: 1.4;">
                     ${escapeHtml(t.summary)}
@@ -229,10 +274,10 @@ function buildBigFiveRadarChart(res) {
                 backgroundColor: 'rgba(139, 92, 246, 0.25)',
                 borderColor: '#8b5cf6',
                 borderWidth: 2,
-                pointBackgroundColor: '#06b6d4',
+                pointBackgroundColor: ['#06b6d4', '#8b5cf6', '#f59e0b', '#10b981', '#ec4899'],
                 pointBorderColor: '#fff',
                 pointHoverBackgroundColor: '#fff',
-                pointHoverBorderColor: '#06b6d4'
+                pointHoverBorderColor: '#8b5cf6'
             }]
         },
         options: {
