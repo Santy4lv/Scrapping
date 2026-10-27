@@ -154,10 +154,20 @@ function analyzeBigFiveLocalFallback(data) {
     };
 }
 
+const GEMINI_CANDIDATE_MODELS = [
+    'gemini-3.5-flash-lite',
+    'gemini-3.5-flash',
+    'gemini-flash-lite-latest',
+    'gemini-3.8-flash',
+    'gemini-3.6-flash',
+    'gemini-3.7-flash',
+    'gemini-2.5-flash-lite'
+];
+
 /**
- * Motor IA con Google Gemini API REST
+ * Motor IA con Google Gemini API REST con cascada automática de modelos
  */
-async function analyzeBigFiveWithGemini(data, apiKey, modelName = 'gemini-2.5-flash') {
+async function analyzeBigFiveWithGemini(data, apiKey, preferredModel = null) {
     if (!apiKey) throw new Error('API Key de Gemini no proporcionada');
     if (!data) throw new Error('Datos del perfil vacíos');
 
@@ -192,54 +202,71 @@ Devuelve ÚNICAMENTE un JSON con este formato exacto:
 }
 `;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { responseMimeType: 'application/json' }
-        })
-    });
+    const modelsToTry = preferredModel
+        ? [preferredModel, ...GEMINI_CANDIDATE_MODELS.filter(m => m !== preferredModel)]
+        : GEMINI_CANDIDATE_MODELS;
 
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Error Gemini API (${response.status}): ${errorText}`);
+    let lastError = null;
+
+    for (const modelName of modelsToTry) {
+        try {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: { responseMimeType: 'application/json' }
+                })
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                lastError = new Error(`Error Gemini API (${response.status}) con ${modelName}: ${errorText}`);
+                console.warn(`[BigFive] Modelo ${modelName} no disponible (${response.status}), intentando siguiente en cascada...`);
+                continue;
+            }
+
+            const jsonRes = await response.json();
+            const rawText = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!rawText) throw new Error('Respuesta vacía de Gemini');
+
+            const parsed = JSON.parse(rawText);
+
+            const traitsList = Object.keys(BIGFIVE_LEXICONS).map(tId => {
+                const info = BIGFIVE_LEXICONS[tId];
+                const tObj = parsed.rasgos?.[tId] || {};
+                return {
+                    trait_id: tId,
+                    trait_name: info.nombre,
+                    trait_en: info.en,
+                    score: tObj.score || 50,
+                    level: tObj.level || 'Moderado',
+                    summary: tObj.summary || '',
+                    reasons: Array.isArray(tObj.reasons) ? tObj.reasons : [],
+                    evidence: [],
+                    keywords: []
+                };
+            });
+
+            return {
+                es_ia: true,
+                motor: `Google Gemini (${modelName})`,
+                arquetipo: parsed.arquetipo || 'Perfil Multidimensional',
+                sintesis_psicologica: parsed.sintesis_psicologica || '',
+                estilo_comunicacion: parsed.estilo_comunicacion || '',
+                fortalezas: parsed.fortalezas || [],
+                areas_observacion: parsed.areas_observacion || [],
+                rasgos: traitsList,
+                timestamp: new Date().toLocaleString()
+            };
+        } catch (err) {
+            lastError = err;
+            console.warn(`[BigFive] Error con modelo ${modelName}:`, err.message);
+        }
     }
 
-    const jsonRes = await response.json();
-    const rawText = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawText) throw new Error('Respuesta vacía de Gemini');
-
-    const parsed = JSON.parse(rawText);
-
-    const traitsList = Object.keys(BIGFIVE_LEXICONS).map(tId => {
-        const info = BIGFIVE_LEXICONS[tId];
-        const tObj = parsed.rasgos?.[tId] || {};
-        return {
-            trait_id: tId,
-            trait_name: info.nombre,
-            trait_en: info.en,
-            score: tObj.score || 50,
-            level: tObj.level || 'Moderado',
-            summary: tObj.summary || '',
-            reasons: Array.isArray(tObj.reasons) ? tObj.reasons : [],
-            evidence: [],
-            keywords: []
-        };
-    });
-
-    return {
-        es_ia: true,
-        motor: `Google Gemini (${modelName})`,
-        arquetipo: parsed.arquetipo || 'Perfil Multidimensional',
-        sintesis_psicologica: parsed.sintesis_psicologica || '',
-        estilo_comunicacion: parsed.estilo_comunicacion || '',
-        fortalezas: parsed.fortalezas || [],
-        areas_observacion: parsed.areas_observacion || [],
-        rasgos: traitsList,
-        timestamp: new Date().toLocaleString()
-    };
+    throw lastError || new Error('No se pudo conectar con ningún modelo de Gemini disponible');
 }
 
 /**
