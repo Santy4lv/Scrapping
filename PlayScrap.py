@@ -232,6 +232,25 @@ def calcular_meta_relaciones(total_disponible: int, limit: int = 0) -> int:
     return total_disponible
 
 
+def obtener_gemini_api_key() -> str:
+    """Lee la API Key de Gemini desde variables de entorno o archivo .env."""
+    key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not key and os.path.exists(".env"):
+        try:
+            with open(".env", "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("GEMINI_API_KEY="):
+                        key = line.split("=", 1)[1].strip()
+                        break
+                    elif (line.startswith("AIzaSy") or line.startswith("AQ.")) and not line.startswith("#"):
+                        key = line
+                        break
+        except Exception:
+            pass
+    return key
+
+
 def extraer_hashtags(texto):
     """Extrae todos los #hashtags de un texto."""
     return re.findall(r"#[\w\u00C0-\u024F]+", texto) if texto else []
@@ -348,34 +367,58 @@ async def extraer_relaciones(page, tipo="following", meta=0, limit=0, target_use
                 if not u or u == target_user or u in usuarios_vistos:
                     continue
 
-                # Previsualización por hover con cursor
-                await link.hover()
-                await page.wait_for_timeout(700)
+                # En Instagram, cada fila tiene un enlace para el avatar y otro para el texto del usuario.
+                # Solo el enlace de texto activa el hovercard con los contadores de seguidores/seguidos.
+                link_text = (await link.inner_text()).strip()
+                if not link_text:
+                    continue
 
-                card_data = await page.evaluate(r"""() => {
-                    const cards = Array.from(document.querySelectorAll("div, section"))
-                        .filter(el => {
-                            const t = el.innerText || '';
-                            const hasPosts = /\b(posts|publicaci\w*)\b/i.test(t);
-                            const hasFlw = /\b(followers|seguidores)\b/i.test(t);
-                            return hasPosts && hasFlw && t.length < 400 && t.length > 30;
-                        })
-                        .sort((a, b) => (a.innerText.length) - (b.innerText.length));
-                    return cards.length > 0 ? cards[0].innerText : '';
-                }""")
+                await link.scroll_into_view_if_needed()
+                await page.mouse.move(10, 10)
+                await page.wait_for_timeout(100)
+
+                # Previsualización por hover con cursor sobre el texto del usuario
+                await link.hover()
+
+                card_data = ""
+                for _ in range(4):
+                    await page.wait_for_timeout(350)
+                    card_data = await page.evaluate(r"""(targetUser) => {
+                        const dialogList = document.querySelector("div[role='dialog']");
+                        const cards = Array.from(document.querySelectorAll("div, section"))
+                            .filter(el => {
+                                const t = (el.innerText || '').trim();
+                                if (t.length < 20 || t.length > 450) return false;
+                                if (dialogList && el.contains(dialogList)) return false;
+
+                                const userRegex = new RegExp("(?:^|\\s|@)" + targetUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "(?:\\s|$|\\n)", "i");
+                                if (!userRegex.test(t)) return false;
+
+                                const hasPosts = /\b(posts|publicaci\w*)\b/i.test(t);
+                                const hasFlw = /\b(followers|seguidores)\b/i.test(t);
+                                return hasPosts && hasFlw;
+                            })
+                            .sort((a, b) => a.innerText.length - b.innerText.length);
+                        return cards.length > 0 ? cards[0].innerText : '';
+                    }""", u)
+                    if card_data:
+                        break
 
                 flw = 0
                 flg = 0
                 pst = 0
 
                 if card_data:
-                    m_pst = re.search(r"\b(\d+[\d.,kKmM]*)\s*(?:publicaci\w*|posts)\b", card_data, re.IGNORECASE)
-                    m_flw = re.search(r"\b(\d+[\d.,kKmM]*)\s*(?:seguidores|followers)\b", card_data, re.IGNORECASE)
-                    m_flg = re.search(r"\b(\d+[\d.,kKmM]*)\s*(?:seguidos|following)\b", card_data, re.IGNORECASE)
+                    m_pst = re.search(r"(\d+[\d.,kKmM]*)\s*(?:publicaci\w*|posts)", card_data, re.IGNORECASE) or re.search(r"(?:publicaci\w*|posts)[\s:]*(\d+[\d.,kKmM]*)", card_data, re.IGNORECASE)
+                    m_flw = re.search(r"(\d+[\d.,kKmM]*)\s*(?:seguidores|followers)", card_data, re.IGNORECASE) or re.search(r"(?:seguidores|followers)[\s:]*(\d+[\d.,kKmM]*)", card_data, re.IGNORECASE)
+                    m_flg = re.search(r"(\d+[\d.,kKmM]*)\s*(?:seguidos|following)", card_data, re.IGNORECASE) or re.search(r"(?:seguidos|following)[\s:]*(\d+[\d.,kKmM]*)", card_data, re.IGNORECASE)
 
                     if m_pst: pst = parsear_numero_metricas(m_pst.group(1))
                     if m_flw: flw = parsear_numero_metricas(m_flw.group(1))
                     if m_flg: flg = parsear_numero_metricas(m_flg.group(1))
+
+                # Descartar hovercard
+                await page.mouse.move(0, 0)
 
                 usuarios_vistos.add(u)
                 cuentas_extraidas.append({
@@ -1102,6 +1145,7 @@ async def run(config=None):
 
         resultado = {
             "perfil": config.target_user,
+            "gemini_api_key": obtener_gemini_api_key(),
             "foto_perfil_url": foto_perfil_url,
             "foto_perfil_local": foto_perfil_local,
             "biografia": "\n".join(bio_lines),

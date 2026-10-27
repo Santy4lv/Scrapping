@@ -187,20 +187,31 @@ function buildBenfordChart() {
             labels: digits.map(d => `Dígito ${d}`),
             datasets: [
                 {
-                    label: 'Observado (%)',
+                    label: 'Real Observado (%)',
                     data: obsValues,
+                    type: 'bar',
                     backgroundColor: 'rgba(6, 182, 212, 0.75)',
                     borderColor: '#06b6d4',
                     borderWidth: 1.5,
-                    borderRadius: 6
+                    borderRadius: 6,
+                    order: 2
                 },
                 {
-                    label: 'Ley de Benford (%)',
+                    label: 'Curva Teórica de Benford (%)',
                     data: espValues,
-                    backgroundColor: 'rgba(245, 158, 11, 0.4)',
+                    type: 'line',
                     borderColor: '#f59e0b',
-                    borderWidth: 1.5,
-                    borderRadius: 6
+                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                    borderWidth: 3,
+                    borderDash: [5, 5],
+                    pointBackgroundColor: '#f59e0b',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 1.5,
+                    pointRadius: 5,
+                    pointHoverRadius: 8,
+                    tension: 0.35,
+                    fill: false,
+                    order: 1
                 }
             ]
         },
