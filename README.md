@@ -1,35 +1,30 @@
-# Instagram Profile Scraper & Dashboard 📊
+# Instagram Profile Scraper & Unified Dashboard 📊
 
-Proyecto de extracción y análisis de datos de perfiles de Instagram para la materia de **Arquitectura de Software** (Tarea 1).
+Proyecto de extracción automatizada, análisis forense de bots y evaluación psicométrica de perfiles de Instagram para la materia de **Arquitectura de Software**.
 
-Incluye un scraper automatizado con **Playwright** que utiliza autenticación mediante cookies de sesión, junto con un **Dashboard Web interactivo** para visualizar seguidores, seguidos, publicaciones, descripciones, hashtags y comentarios.
+Combina un scraper automatizado con **Playwright** (autenticado por cookies de sesión) con un **Dashboard Web interactivo desacoplado** (`dashboard.html` + arquitectura modular en `js/`) que integra análisis de engagement, detección forense de bots mediante la **Ley de Benford** y análisis de personalidad con **Google Gemini AI (Big Five OCEAN)** y motor léxico de contingencia.
 
 ---
 
-## 🚀 Características
+## 🚀 Arquitectura y Características
 
-- **Extracción de perfil y métricas:**
-  - Cantidad de publicaciones, seguidores, seguidos, biografía y foto de perfil.
-  - Descarga automática de la foto de perfil en formato local (`{usuario}_avatar.jpg`).
-- **Lista de Seguidores y Seguidos:**
-  - Desplazamiento automático con rebote en modales para sortear lazy-loading dinámico.
-- **Detalle de Publicaciones y Multimedia:**
-  - URLs de imágenes directas, detección de tipo (`image`, `carousel`, `video`).
-  - Navegación automática en carruseles para recolectar todas las fotografías del álbum.
-  - Extracción de texto alternativo accesible (`alt_texto`).
-  - URLs de posts, descripciones completas, conteo de likes, hashtags (#) y menciones (@).
-- **Extracción de Comentarios:**
-  - Recolección de comentarios asociados a cada publicación (usuario + texto).
-- **Exportación Integral de Datos:**
-  - `{usuario}_datos.json` (Estructura jerárquica unificada y completa con metadatos de perfil, relaciones, publicaciones, imágenes/carruseles y comentarios para el dashboard y análisis).
-- **Visualizador Web Interactivo (`dashboard.html`):**
-  - Interfaz moderna con modo oscuro y diseño Glassmorphism.
-  - Avatar real del usuario en la cabecera.
-  - Renderizado visual de imágenes, carruseles y enlaces directos a Instagram.
-  - Carga arrastrando y soltando (drag-and-drop) del archivo JSON.
-  - Métricas clave en tarjetas dinámicas (Follower/Following ratio, engagement, etc.).
-  - Pestaña de publicaciones con acordeón expandible de comentarios.
-  - Pestaña de seguidores y seguidos con buscador y filtros en tiempo real.
+### 1. Extractor Automatizado (`PlayScrap.py`)
+- **Extracción de perfil y métricas:** Cantidad de publicaciones, seguidores, seguidos, biografía y foto de perfil (`{usuario}_avatar.jpg`).
+- **Relaciones con Métricas Forenses:** Extrae seguidores y seguidos capturando sus métricas individuales (`seguidores`, `seguidos`, `publicaciones`) mediante tarjetas hover para análisis estadístico.
+- **Publicaciones y Multimedia:** URLs de imágenes, carruseles multi-foto completos, textos alternativos (`alt_texto`), conteo de likes, hashtags (#) y menciones (@).
+- **Comentarios:** Extracción jerárquica de comentarios por publicación (usuario y texto).
+- **Configuración centralizada en `.env`:** Control granular de límites (`MAX_FOLLOWERS`, `MAX_FOLLOWING`, `MAX_POSTS`, `MAX_COMMENTS_PER_POST`; donde `0` = sin límite / todos disponibles).
+- **Exportación limpia:** Genera `{usuario}_datos.json` estructurado y normalizado.
+
+### 2. Dashboard Web Modular (`dashboard.html`)
+Diseñado bajo el principio de **separación estricta de responsabilidades**:
+- **`dashboard.html`**: Estructura semántica pura y estilos visuales Glassmorphism en modo oscuro (sin lógica de negocio embebida).
+- **`js/storage.js`**: Persistencia de estado en `localStorage` (`DATA`, pestaña activa, análisis de personalidad y API Key). Conserva los resultados tras recargar con F5 y ofrece un botón *"🔄 Cambiar perfil"* para resetear.
+- **`js/benford.js`**: Motor forense de la Ley de Benford en JavaScript puro. Calcula primer dígito significativo (FSD), $\chi^2$ con cálculo analítico de $p$-valor ($df=8$), MAD de Mark Nigrini, distancia Kolmogorov-Smirnov $D$ y *Human Likeness Score* ($0\% - 100\%$). Procesa seguidores, seguidos o ambos de forma agnóstica.
+- **`js/benford_ui.js`**: Renderizado de la pestaña de detección de bots, tarjetas estadísticas, selectores de serie (`Seguidores`, `Seguidos`, `Red Consolidada`), gráfico comparativo Chart.js y tabla de dígitos del 1 al 9.
+- **`js/bigfive.js`**: Motor psicométrico de los Cinco Grandes Factores (OCEAN). Soporta evaluación avanzada mediante **Google Gemini REST API** (`gemini-2.5-flash`) y un **motor léxico local de contingencia** transparente y offline.
+- **`js/bigfive_ui.js`**: Pestaña interactiva bajo demanda: campo de API key opcional, botón de análisis con spinner de procesamiento, insignia de motor activo (`[✨ Google Gemini]` vs `[⚡ Motor Léxico]`), Radar Chart psicométrico y tarjetas detalladas de los 5 rasgos.
+- **`js/app.js`**: Controlador de interfaz: drag-and-drop, lectura JSON, contadores numéricos animados, gráficos de resumen (engagement, hashtags, comentaristas, menciones), carruseles de posts, modal de comentarios y búsqueda reactiva.
 
 ---
 
@@ -44,115 +39,77 @@ Incluye un scraper automatizado con **Playwright** que utiliza autenticación me
 
 ---
 
-## ⚙️ Configuración (.env)
+## ⚙️ Configuración (`.env`)
 
-Crea un archivo `.env` en la raíz del proyecto con tus credenciales de sesión y preferencias de extracción:
+Copia la plantilla y configura tus credenciales de sesión en `.env`:
 
+```bash
+cp .env.example .env
+```
+
+Ejemplo de contenido:
 ```env
 TARGET_USER=sausage_player
 IG_SESSION_ID=tu_sessionid_aqui
 IG_DS_USER_ID=tu_ds_user_id_aqui
 
-# Control modular de módulos (true/false)
-SCRAPE_FOLLOWERS=false
-SCRAPE_FOLLOWING=false
+# Módulos activos (true/false)
+SCRAPE_FOLLOWERS=true
+SCRAPE_FOLLOWING=true
 SCRAPE_POSTS=true
 SCRAPE_COMMENTS=true
 
-# Límites de extracción (0 = sin límite)
-MAX_POSTS=5
+# Límites de extracción (0 = sin límite / todos los disponibles)
+MAX_POSTS=10
 MAX_COMMENTS_PER_POST=10
-MAX_FOLLOWERS=0
-MAX_FOLLOWING=0
+MAX_FOLLOWERS=200
+MAX_FOLLOWING=100
 
-# Modo de navegador
+# Navegador
 HEADLESS=false
+
+# Opcional: Gemini API Key para análisis de personalidad
+GEMINI_API_KEY=tu_gemini_api_key_aqui
 ```
 
-> **Nota:** 
-> - Puedes obtener `sessionid` y `ds_user_id` desde las cookies del navegador (F12 -> Application -> Cookies -> instagram.com).
-> - Desactivar `SCRAPE_FOLLOWERS` y `SCRAPE_FOLLOWING` acelera considerablemente el tiempo de scraping si solo te interesan las publicaciones y el texto.
+> **Nota:** Las cookies `sessionid` y `ds_user_id` se obtienen desde las herramientas de desarrollo del navegador (F12 -> Application -> Cookies -> instagram.com).
 
 ---
 
-## 🏃‍♂️ Ejecución y Comandos CLI
+## 🏃‍♂️ Extracción de Datos (CLI)
 
-Puedes ejecutar el scraper con la configuración de `.env`:
-
+Ejecuta el scraper con los parámetros de `.env`:
 ```bash
 python PlayScrap.py
 ```
 
-O sobreescribir cualquier módulo y límite directamente desde la terminal:
-
+O sobrescribe opciones desde la línea de comandos:
 ```bash
-# Atajo rápido: solo publicaciones y comentarios (ignora seguidores/seguidos)
+# Solo publicaciones y comentarios (ignora seguidores y seguidos)
 python PlayScrap.py --posts-only --max-posts 5
 
-# Atajo rápido: solo red de contactos (seguidores y seguidos)
-python PlayScrap.py --network-only --max-followers 50 --max-following 50
+# Extraer seguidores y seguidos con límites específicos
+python PlayScrap.py --max-followers 50 --max-following 50
 
-# Desactivar comentarios de publicaciones para agilizar la extracción
-python PlayScrap.py --no-comments
-
-# Cambiar de usuario y ejecutar sin ventana gráfica (headless)
-python PlayScrap.py --user otro_usuario --headless --posts-only
+# Modo sin ventana gráfica (headless)
+python PlayScrap.py --headless
 
 # Ver todas las opciones disponibles
 python PlayScrap.py --help
 ```
 
-Al terminar, se generará automáticamente el archivo `{usuario}_datos.json` correspondiente a los módulos activos.
+Al finalizar, se generará el archivo `{usuario}_datos.json`.
 
 ---
 
-## 🖥️ Visualización en el Dashboard
+## 🖥️ Uso del Dashboard Unificado
 
-1. Abre el archivo `dashboard.html` en cualquier navegador web (Chrome, Edge, Firefox).
-2. Arrastra o selecciona el archivo JSON generado (ej. `sausage_player_datos.json`).
-3. Explora las estadísticas generales, publicaciones, comentarios y listas de relaciones.
-
----
-
-## 🧠 Análisis Psicométrico con Google Gemini AI (Big Five / OCEAN)
-
-Puedes analizar el perfil psicológico, estilo comunicativo y rasgos de personalidad a partir del archivo JSON extraído:
-
-```bash
-# Ejecución interactiva (detecta archivos json disponibles y solicita API key si no está en .env)
-python bigfive_analyzer.py
-
-# Analizar un archivo específico con Gemini
-python bigfive_analyzer.py sausage_player_datos.json
-
-# Pasar API Key directamente por terminal
-python bigfive_analyzer.py sausage_player_datos.json --api-key TU_GEMINI_API_KEY
-
-# Forzar modo heurístico local sin conexión a la API
-python bigfive_analyzer.py sausage_player_datos.json --offline
-```
-
-Al ejecutarse genera:
-- Resumen enriquecido en la consola con arquetipo de personalidad, síntesis psicológica y fortalezas conductuales.
-- Reporte web interactivo `{usuario}_bigfive_analisis.html` con gráfico radar de dimensiones OCEAN, avatar del perfil, insignias de motor de análisis y justificaciones con evidencia real.
-
----
-
-## 📐 Detección Forense de Bots mediante la Ley de Benford
-
-Módulo de auditoría estadística que evalúa si la red de seguidores y seguidos de una cuenta se comporta de manera orgánica o presenta anomalías típicas de granjas de bots o compra de seguidores:
-
-```bash
-# Ejecución interactiva (detecta archivos json disponibles)
-python benford_analyzer.py
-
-# Analizar un archivo específico
-python benford_analyzer.py sausage_player_datos.json
-
-# Ejecutar sin abrir automáticamente el navegador
-python benford_analyzer.py sausage_player_datos.json --no-browser
-```
-
-Al ejecutarse genera:
-- Diagnóstico estadístico en terminal con frecuencias dígito a dígito (1 al 9), **Chi-cuadrado ($\chi^2$)**, **$p\text{-value}$**, **Desviación Absoluta Media (MAD de Nigrini)** y **Porcentaje de Verosimilitud Humana (% Human Likeness)**.
-- Reporte interactivo `{usuario}_benford_analisis.html` con gráfica comparativa en **Chart.js** (Curva Teórica de Benford vs. Frecuencia Real Observada) y desglose de métricas.
+1. Abre [`dashboard.html`](dashboard.html) en tu navegador preferido (Chrome, Edge, Firefox, Safari).
+2. Arrastra y suelta el archivo JSON generado (o haz clic en *Seleccionar archivo JSON*).
+3. Navega por las secciones disponibles:
+   - **Resumen:** Métricas globales, avatar, biografía y gráficos de engagement, hashtags y comentaristas.
+   - **Publicaciones:** Grid de publicaciones con visor de carruseles multimedia y comentarios.
+   - **Seguidores / Seguidos:** Fichas de usuarios con métricas de audiencia y buscador reactivo.
+   - **🤖 Detección de Bots:** Evaluación forense de Benford, nivel de conformidad, probabilidad de autenticidad humana, tarjetas $\chi^2$/MAD y gráfico comparativo.
+   - **🧠 Personalidad (Big Five):** Ejecución bajo demanda con Gemini AI o motor local, visualización en Radar Chart y desglose de rasgos OCEAN.
+4. **Persistencia:** Puedes recargar la página (F5) en cualquier momento; tus datos y análisis se mantendrán en pantalla. Para cargar otro perfil, haz clic en **"🔄 Cambiar perfil"**.

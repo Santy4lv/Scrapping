@@ -6,6 +6,7 @@
     <title>Instagram Profile Analyzer</title>
     <meta name="description" content="Visualizador interactivo de datos extraídos de perfiles de Instagram">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --bg: #0a0a14;
@@ -24,6 +25,7 @@
             --green: #10b981;
             --red: #ef4444;
             --gradient: linear-gradient(135deg, #7c3aed, #2563eb);
+            --gradient-primary: linear-gradient(135deg, #7c3aed, #2563eb);
             --gradient-accent: linear-gradient(135deg, #06b6d4, #8b5cf6);
             --radius: 16px;
             --radius-sm: 10px;
@@ -154,7 +156,7 @@
 
         /* ── Stats ── */
         .stats-grid {
-            display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px;
             margin-bottom: 24px;
         }
         .stat-card {
@@ -283,9 +285,84 @@
         }
         .carousel-thumb {
             width: 44px; height: 44px; border-radius: 6px; object-fit: cover;
-            border: 1px solid rgba(255,255,255,0.1); flex-shrink: 0; transition: transform 0.2s;
+            border: 1.5px solid rgba(255,255,255,0.12); flex-shrink: 0; cursor: pointer; transition: all 0.2s;
         }
-        .carousel-thumb:hover { transform: scale(1.1); border-color: var(--purple); }
+        .carousel-thumb:hover { transform: scale(1.1); border-color: var(--cyan); }
+        .carousel-thumb.active { border-color: var(--cyan); box-shadow: 0 0 10px rgba(6,182,212,0.8); transform: scale(1.08); }
+        .carousel-nav-btn {
+            position: absolute; top: 50%; transform: translateY(-50%);
+            width: 32px; height: 32px; border-radius: 50%;
+            background: rgba(15, 15, 26, 0.85); backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.25); color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; font-size: 13px; transition: all 0.2s; z-index: 5;
+        }
+        .carousel-nav-btn:hover { background: var(--cyan); color: #000; transform: translateY(-50%) scale(1.1); }
+        .carousel-nav-prev { left: 8px; }
+        .carousel-nav-next { right: 8px; }
+        .carousel-counter {
+            position: absolute; bottom: 8px; right: 8px;
+            background: rgba(15, 15, 26, 0.85); backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.15); color: #fff;
+            font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; z-index: 4;
+        }
+        .post-zoom-btn {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(15, 15, 26, 0.85); backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.2); color: #fff;
+            font-size: 11px; padding: 3px 8px; border-radius: 12px; cursor: pointer;
+            opacity: 0; transition: opacity 0.2s; z-index: 4;
+        }
+        .post-media-wrap:hover .post-zoom-btn { opacity: 1; }
+
+        /* Lightbox Modal */
+        .lightbox-modal {
+            position: fixed; inset: 0; background: rgba(5, 5, 12, 0.94);
+            backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 9999; opacity: 0; pointer-events: none; transition: opacity 0.25s ease;
+        }
+        .lightbox-modal.active { opacity: 1; pointer-events: auto; }
+        .lightbox-content {
+            position: relative; max-width: 90vw; max-height: 90vh;
+            display: flex; flex-direction: column; align-items: center;
+        }
+        .lightbox-img {
+            max-width: 85vw; max-height: 75vh; object-fit: contain;
+            border-radius: 12px; box-shadow: 0 25px 60px rgba(0,0,0,0.9);
+            border: 1px solid rgba(255,255,255,0.12);
+        }
+        .lightbox-close {
+            position: absolute; top: -45px; right: 0;
+            background: transparent; border: none; color: #fff; font-size: 28px;
+            cursor: pointer; opacity: 0.8; transition: opacity 0.2s;
+        }
+        .lightbox-close:hover { opacity: 1; color: var(--cyan); }
+        .lightbox-nav-btn {
+            position: absolute; top: 50%; transform: translateY(-50%);
+            width: 44px; height: 44px; border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.25); color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px; cursor: pointer; transition: all 0.2s; z-index: 10;
+        }
+        .lightbox-nav-btn:hover { background: var(--cyan); color: #000; }
+        .lightbox-prev { left: -60px; }
+        .lightbox-next { right: -60px; }
+        @media (max-width: 768px) {
+            .lightbox-prev { left: 10px; }
+            .lightbox-next { right: 10px; }
+        }
+        .lightbox-footer { margin-top: 14px; text-align: center; max-width: 650px; }
+        .lightbox-counter {
+            font-size: 12px; font-weight: 700; color: var(--cyan);
+            background: rgba(6,182,212,0.15); border: 1px solid rgba(6,182,212,0.3);
+            padding: 3px 12px; border-radius: 12px; display: inline-block; margin-bottom: 6px;
+        }
+        .lightbox-caption {
+            font-size: 13px; color: var(--text-secondary); line-height: 1.5;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+        }
         .post-date {
             font-size: 11px; color: var(--text-dim); padding: 4px 10px;
             background: rgba(255,255,255,0.05); border-radius: 20px;
@@ -370,10 +447,76 @@
         ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 
+        /* ── Benford Bot Detection ── */
+        .benford-verdict-card {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 24px; border-radius: 16px; margin-bottom: 24px; gap: 20px;
+            background: linear-gradient(135deg, rgba(139,92,246,0.1), rgba(6,182,212,0.1));
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .benford-score-box { text-align: center; min-width: 140px; }
+        .benford-score-num { font-size: 44px; font-weight: 800; line-height: 1; }
+        .benford-score-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-top: 6px; }
+        .benford-verdict-title { font-size: 20px; font-weight: 700; }
+        .benford-verdict-badge {
+            display: inline-block; padding: 4px 12px; border-radius: 20px;
+            font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .badge-organic { background: rgba(16,185,129,0.2); color: #34d399; border: 1px solid rgba(16,185,129,0.3); }
+        .badge-acceptable { background: rgba(59,130,246,0.2); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+        .badge-atypical { background: rgba(245,158,11,0.2); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+        .badge-botnet { background: rgba(239,68,68,0.2); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+
+        .series-toggle-bar { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+        .series-btn {
+            padding: 8px 16px; font-size: 13px; font-weight: 600; border-radius: 20px;
+            cursor: pointer; transition: all 0.2s; border: 1px solid var(--border);
+            background: rgba(255,255,255,0.03); color: var(--text-secondary);
+        }
+        .series-btn:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+        .series-btn.active { background: var(--gradient-primary); color: #fff; border-color: transparent; }
+
+        .benford-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .benford-table th { text-align: left; padding: 10px 12px; color: var(--text-dim); font-size: 11px; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+        .benford-table td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+        .benford-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+        /* ── Big Five OCEAN Personality ── */
+        .badge-gemini {
+            display: inline-block; padding: 4px 12px; border-radius: 20px;
+            font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+            background: linear-gradient(135deg, rgba(139,92,246,0.3), rgba(6,182,212,0.3));
+            color: #67e8f9; border: 1px solid rgba(6,182,212,0.4);
+        }
+        .badge-fallback {
+            display: inline-block; padding: 4px 12px; border-radius: 20px;
+            font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+            background: rgba(245,158,11,0.2); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3);
+        }
+        .traits-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+        .trait-card { padding: 20px; border-radius: 14px; transition: transform 0.2s; }
+        .trait-card:hover { transform: translateY(-2px); }
+        .trait-progress-track { width: 100%; height: 8px; background: rgba(255,255,255,0.08); border-radius: 4px; overflow: hidden; margin-top: 6px; }
+        .trait-progress-fill { height: 100%; border-radius: 4px; transition: width 0.8s ease; }
+        .trait-reasons-list { list-style: none; padding: 0; margin: 0; }
+        .trait-reasons-list li {
+            position: relative; padding-left: 14px; margin-bottom: 6px;
+            font-size: 12px; color: var(--text-secondary); line-height: 1.4;
+        }
+        .trait-reasons-list li::before {
+            content: '•'; position: absolute; left: 0; color: var(--cyan); font-weight: bold;
+        }
+        .alert-box {
+            padding: 12px 16px; border-radius: 10px; font-size: 12px;
+            background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.3); color: #fbbf24;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
         /* ── Responsive ── */
         @media (max-width: 900px) {
-            .charts-grid { grid-template-columns: 1fr; }
+            .charts-grid { grid-template-columns: 1fr !important; }
             .profile-card { flex-direction: column; align-items: center; text-align: center; }
+            .benford-verdict-card { flex-direction: column; text-align: center; }
         }
         @media (max-width: 768px) {
             .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -419,7 +562,7 @@
                 </div>
                 <div class="nav-right">
                     <div class="nav-user" id="nav-username">@perfil</div>
-                    <button class="btn-ghost" id="btn-reload">Cargar otro</button>
+                    <button class="btn-ghost" id="btn-reload" title="Cargar un nuevo archivo JSON">🔄 Cambiar perfil</button>
                 </div>
             </nav>
 
@@ -463,6 +606,8 @@
                     <button class="tab" data-tab="posts">Publicaciones</button>
                     <button class="tab" data-tab="followers">Seguidores</button>
                     <button class="tab" data-tab="following">Seguidos</button>
+                    <button class="tab" data-tab="benford">🤖 Detección de Bots</button>
+                    <button class="tab" data-tab="bigfive">🧠 Personalidad (Big Five)</button>
                 </div>
             </div>
 
@@ -518,361 +663,39 @@
                 </div>
                 <div class="users-grid" id="following-grid"></div>
             </div>
+
+            <!-- BENFORD BOT DETECTION -->
+            <div class="tab-panel" id="panel-benford">
+                <div id="benford-content"></div>
+            </div>
+
+            <!-- BIG FIVE OCEAN PERSONALITY -->
+            <div class="tab-panel" id="panel-bigfive">
+                <div id="bigfive-content"></div>
+            </div>
         </div>
     </div>
 
-    <script>
-    /* ════════════════════════════════════════════════════
-       STATE
-       ════════════════════════════════════════════════════ */
-    let DATA = null;
+    <!-- Lightbox Modal (Visor en Grande de Multimedia) -->
+    <div id="lightbox-modal" class="lightbox-modal" onclick="closeLightbox(event)">
+        <div class="lightbox-content" onclick="event.stopPropagation()">
+            <button class="lightbox-close" onclick="closeLightbox()" title="Cerrar (Esc)">✕</button>
+            <button class="lightbox-nav-btn lightbox-prev" onclick="navigateLightbox(-1)" title="Anterior (←)">◀</button>
+            <button class="lightbox-nav-btn lightbox-next" onclick="navigateLightbox(1)" title="Siguiente (→)">▶</button>
+            <img id="lightbox-img" class="lightbox-img" src="" alt="Foto en grande">
+            <div class="lightbox-footer">
+                <span id="lightbox-counter" class="lightbox-counter">1 / 1</span>
+                <p id="lightbox-caption" class="lightbox-caption"></p>
+            </div>
+        </div>
+    </div>
 
-    /* ════════════════════════════════════════════════════
-       FILE LOADING
-       ════════════════════════════════════════════════════ */
-    const fileInput = document.getElementById('file-input');
-    const dropZone = document.getElementById('drop-zone');
-
-    fileInput.addEventListener('change', e => {
-        if (e.target.files[0]) loadFile(e.target.files[0]);
-    });
-
-    dropZone.addEventListener('click', () => fileInput.click());
-    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-    dropZone.addEventListener('drop', e => {
-        e.preventDefault();
-        dropZone.classList.remove('dragover');
-        if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
-    });
-
-    document.getElementById('btn-reload').addEventListener('click', () => {
-        document.getElementById('upload-screen').classList.remove('hidden');
-        document.getElementById('dashboard-screen').classList.add('hidden');
-        fileInput.value = '';
-    });
-
-    function loadFile(file) {
-        const reader = new FileReader();
-        reader.onload = e => {
-            try {
-                DATA = JSON.parse(e.target.result);
-                showDashboard();
-            } catch (err) {
-                alert('Error al leer el archivo JSON: ' + err.message);
-            }
-        };
-        reader.readAsText(file);
-    }
-
-    /* ════════════════════════════════════════════════════
-       DASHBOARD RENDERING
-       ════════════════════════════════════════════════════ */
-    function showDashboard() {
-        document.getElementById('upload-screen').classList.add('hidden');
-        document.getElementById('dashboard-screen').classList.remove('hidden');
-
-        renderProfile();
-        renderStats();
-        renderOverviewCharts();
-        renderPosts();
-        renderUsers('followers');
-        renderUsers('following');
-        setupSearch();
-        setupTabs();
-    }
-
-    /* ── Profile ── */
-    function renderProfile() {
-        const name = DATA.perfil || 'unknown';
-        document.getElementById('profile-name').textContent = name;
-        document.getElementById('profile-bio').textContent = DATA.biografia || '';
-        document.getElementById('nav-username').textContent = '@' + name;
-
-        const avatarEl = document.getElementById('profile-avatar');
-        const avatarSrc = DATA.foto_perfil_local || DATA.foto_perfil_url;
-        if (avatarSrc) {
-            avatarEl.innerHTML = `<img src="${escapeHtml(avatarSrc)}" alt="${escapeHtml(name)}" onerror="this.remove(); document.getElementById('profile-avatar').textContent='${name.charAt(0).toUpperCase()}';">`;
-        } else {
-            avatarEl.textContent = name.charAt(0).toUpperCase();
-        }
-    }
-
-    /* ── Stats with counter animation ── */
-    function renderStats() {
-        const totalComments = (DATA.publicaciones || []).reduce((sum, p) => sum + (p.total_comentarios || 0), 0);
-        animateCounter('stat-posts', DATA.publicaciones_count || (DATA.publicaciones || []).length);
-        animateCounter('stat-followers', DATA.total_seguidores || 0);
-        animateCounter('stat-following', DATA.total_seguidos || 0);
-        animateCounter('stat-comments', totalComments);
-    }
-
-    function animateCounter(id, target) {
-        const el = document.getElementById(id);
-        if (!target) { el.textContent = '0'; return; }
-        let current = 0;
-        const duration = 1200;
-        const steps = 40;
-        const increment = target / steps;
-        const interval = duration / steps;
-        const timer = setInterval(() => {
-            current += increment;
-            if (current >= target) { current = target; clearInterval(timer); }
-            el.textContent = formatNumber(Math.round(current));
-        }, interval);
-    }
-
-    function formatNumber(n) {
-        return n.toLocaleString('es-EC');
-    }
-
-    /* ── Overview Charts ── */
-    function renderOverviewCharts() {
-        const posts = DATA.publicaciones || [];
-
-        // Engagement chart (likes per post)
-        const engContainer = document.getElementById('chart-engagement');
-        engContainer.innerHTML = '';
-        if (posts.length === 0) {
-            engContainer.innerHTML = '<div style="color:var(--text-dim);font-size:13px;">Sin datos de publicaciones</div>';
-        } else {
-            const maxLikes = Math.max(...posts.map(p => p.likes || 0), 1);
-            posts.forEach((post, i) => {
-                const pct = ((post.likes || 0) / maxLikes) * 100;
-                const bar = document.createElement('div');
-                bar.className = 'v-bar';
-                bar.style.height = Math.max(pct, 2) + '%';
-                bar.style.animationDelay = (i * 0.02) + 's';
-                const dateStr = post.fecha ? new Date(post.fecha).toLocaleDateString('es-EC', { day: 'numeric', month: 'short' }) : '#' + (i + 1);
-                bar.innerHTML = `<div class="v-bar-tip">❤️ ${formatNumber(post.likes || 0)}<br>${dateStr}</div>`;
-                engContainer.appendChild(bar);
-            });
-        }
-
-        // Top hashtags
-        renderHBarChart('chart-hashtags', getFrequency(posts.flatMap(p => p.hashtags || [])), 'purple');
-
-        // Top commenters
-        const allCommenters = posts.flatMap(p => (p.comentarios || []).map(c => c.usuario));
-        renderHBarChart('chart-commenters', getFrequency(allCommenters), 'cyan');
-
-        // Top mentions
-        renderHBarChart('chart-mentions', getFrequency(posts.flatMap(p => p.menciones || [])), 'pink');
-    }
-
-    function getFrequency(arr) {
-        const freq = {};
-        arr.forEach(item => { freq[item] = (freq[item] || 0) + 1; });
-        return Object.entries(freq)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 10);
-    }
-
-    function renderHBarChart(containerId, data, colorClass) {
-        const container = document.getElementById(containerId);
-        container.innerHTML = '';
-        if (data.length === 0) {
-            container.innerHTML = '<div style="color:var(--text-dim);font-size:13px;">Sin datos disponibles</div>';
-            return;
-        }
-        const maxVal = data[0][1];
-        data.forEach(([label, value]) => {
-            const pct = (value / maxVal) * 100;
-            const row = document.createElement('div');
-            row.className = 'h-bar-row';
-            row.innerHTML = `
-                <span class="h-bar-label" title="${escapeHtml(label)}">${escapeHtml(label)}</span>
-                <div class="h-bar-track"><div class="h-bar-fill ${colorClass}" style="width:${pct}%"></div></div>
-                <span class="h-bar-value">${value}</span>
-            `;
-            container.appendChild(row);
-        });
-    }
-
-    /* ── Posts ── */
-    function renderPosts(filter = '') {
-        const grid = document.getElementById('posts-grid');
-        grid.innerHTML = '';
-        const posts = DATA.publicaciones || [];
-        const filtered = posts.filter(p =>
-            !filter || (p.caption || '').toLowerCase().includes(filter)
-            || (p.hashtags || []).join(' ').toLowerCase().includes(filter)
-            || (p.comentarios || []).some(c => c.texto.toLowerCase().includes(filter) || c.usuario.toLowerCase().includes(filter))
-        );
-
-        document.getElementById('count-posts').textContent = `${filtered.length} de ${posts.length}`;
-
-        filtered.forEach((post, idx) => {
-            const card = document.createElement('div');
-            card.className = 'post-card glass';
-            card.style.animationDelay = (idx * 0.03) + 's';
-            card.addEventListener('click', () => card.classList.toggle('expanded'));
-
-            const dateStr = post.fecha
-                ? new Date(post.fecha).toLocaleDateString('es-EC', { day: 'numeric', month: 'short', year: 'numeric' })
-                : '';
-
-            const captionHtml = post.caption
-                ? `<div class="post-caption">${escapeHtml(post.caption)}</div>`
-                : `<div class="post-caption post-caption-empty">Sin descripción</div>`;
-
-            const tagsHtml = [
-                ...(post.hashtags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`),
-                ...(post.menciones || []).map(m => `<span class="tag mention">${escapeHtml(m)}</span>`),
-            ].join('');
-
-            const commentsHtml = (post.comentarios || []).length > 0
-                ? (post.comentarios || []).map(c => `
-                    <div class="comment">
-                        <div class="comment-avatar">${c.usuario.charAt(0).toUpperCase()}</div>
-                        <div class="comment-body">
-                            <div class="comment-user">${escapeHtml(c.usuario)}</div>
-                            <div class="comment-text">${escapeHtml(c.texto)}</div>
-                        </div>
-                    </div>`).join('')
-                : '<div class="no-comments">Sin comentarios extraídos</div>';
-
-            // Media HTML
-            let mediaHtml = '';
-            if (post.imagen_url) {
-                const badgeText = (post.tipo_media === 'carousel' && post.imagenes && post.imagenes.length > 1)
-                    ? `📸 Carrusel (${post.imagenes.length})`
-                    : (post.tipo_media === 'video' ? '▶ Video / Reel' : '');
-                const badgeHtml = badgeText ? `<span class="post-media-badge">${badgeText}</span>` : '';
-
-                mediaHtml = `
-                    <div class="post-media-wrap">
-                        <img src="${escapeHtml(post.imagen_url)}" 
-                             alt="${escapeHtml(post.alt_texto || post.caption || 'Publicación')}" 
-                             class="post-media-img" 
-                             loading="lazy" 
-                             onerror="this.closest('.post-media-wrap').style.display='none';">
-                        ${badgeHtml}
-                    </div>
-                `;
-            }
-
-            const altHtml = post.alt_texto
-                ? `<div class="post-alt-tag" title="${escapeHtml(post.alt_texto)}">📸 ${escapeHtml(post.alt_texto)}</div>`
-                : '';
-
-            let carouselThumbsHtml = '';
-            if (post.tipo_media === 'carousel' && post.imagenes && post.imagenes.length > 1) {
-                carouselThumbsHtml = `
-                    <div class="carousel-preview" title="Fotos del carrusel">
-                        ${post.imagenes.map((imgUrl, i) => `
-                            <img src="${escapeHtml(imgUrl)}" 
-                                 alt="Foto ${i + 1}" 
-                                 class="carousel-thumb" 
-                                 loading="lazy" 
-                                 onerror="this.style.display='none';">
-                        `).join('')}
-                    </div>
-                `;
-            }
-
-            const linkHtml = post.url
-                ? `<a href="${post.url}" target="_blank" rel="noopener" class="post-link-btn" title="Abrir en Instagram" onclick="event.stopPropagation()">Instagram ↗</a>`
-                : '';
-
-            card.innerHTML = `
-                <div class="post-header">
-                    <span class="post-index">#${posts.indexOf(post) + 1}</span>
-                    <div class="post-header-right">
-                        ${linkHtml}
-                        <span class="post-date">${dateStr}</span>
-                    </div>
-                </div>
-                ${mediaHtml}
-                ${carouselThumbsHtml}
-                ${captionHtml}
-                ${altHtml}
-                ${tagsHtml ? `<div class="post-tags">${tagsHtml}</div>` : ''}
-                <div class="post-meta">
-                    <span>❤️ ${formatNumber(post.likes || 0)}</span>
-                    <span>💬 ${post.total_comentarios || 0}</span>
-                    ${post.hashtags?.length ? `<span>#️⃣ ${post.hashtags.length}</span>` : ''}
-                </div>
-                ${(post.comentarios || []).length > 0 || post.caption ? '<div class="post-expand-hint">▸ Click para expandir</div>' : ''}
-                <div class="comments-section">
-                    <div class="comments-title">Comentarios (${(post.comentarios || []).length})</div>
-                    ${commentsHtml}
-                </div>
-            `;
-            grid.appendChild(card);
-        });
-    }
-
-    /* ── Users (followers / following) ── */
-    function renderUsers(type, filter = '') {
-        const rawList = type === 'followers'
-            ? (DATA.seguidores || (DATA.red_analizada?.tipo_red === 'seguidores' ? DATA.red_analizada.cuentas : []))
-            : (DATA.seguidos || (DATA.red_analizada?.tipo_red === 'seguidos' ? DATA.red_analizada.cuentas : []));
-        const list = rawList || [];
-        const grid = document.getElementById(type === 'followers' ? 'followers-grid' : 'following-grid');
-        grid.innerHTML = '';
-
-        const filterLower = (filter || '').toLowerCase();
-        const filtered = list.filter(item => {
-            const uname = typeof item === 'string' ? item : (item.usuario || '');
-            return !filterLower || uname.toLowerCase().includes(filterLower);
-        });
-        const countId = type === 'followers' ? 'count-followers' : 'count-following';
-        document.getElementById(countId).textContent = `${filtered.length} de ${list.length}`;
-
-        filtered.forEach((item, i) => {
-            const uname = typeof item === 'string' ? item : (item.usuario || '');
-            const stats = typeof item === 'object' && item.seguidores !== undefined
-                ? `<span style="font-size:0.75rem; color:#94a3b8; display:block; margin-top:2px;">👥 ${item.seguidores.toLocaleString()} seg. | 🫂 ${item.seguidos.toLocaleString()} seguidos</span>`
-                : '';
-            const chip = document.createElement('div');
-            chip.className = 'user-chip glass';
-            chip.style.animationDelay = Math.min(i * 0.01, 0.5) + 's';
-            chip.innerHTML = `
-                <div class="user-avatar-mini">${uname.charAt(0).toUpperCase()}</div>
-                <div>
-                    <a href="https://www.instagram.com/${uname}/" target="_blank" rel="noopener">@${escapeHtml(uname)}</a>
-                    ${stats}
-                </div>
-            `;
-            grid.appendChild(chip);
-        });
-    }
-
-    /* ════════════════════════════════════════════════════
-       INTERACTIONS
-       ════════════════════════════════════════════════════ */
-    function setupTabs() {
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-                tab.classList.add('active');
-                document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
-            });
-        });
-    }
-
-    function setupSearch() {
-        document.getElementById('search-posts').addEventListener('input', e => {
-            renderPosts(e.target.value.toLowerCase());
-        });
-        document.getElementById('search-followers').addEventListener('input', e => {
-            renderUsers('followers', e.target.value.toLowerCase());
-        });
-        document.getElementById('search-following').addEventListener('input', e => {
-            renderUsers('following', e.target.value.toLowerCase());
-        });
-    }
-
-    /* ════════════════════════════════════════════════════
-       UTILITIES
-       ════════════════════════════════════════════════════ */
-    function escapeHtml(str) {
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
-    }
-    </script>
+    <!-- Scripts Modulares -->
+    <script src="js/storage.js"></script>
+    <script src="js/benford.js"></script>
+    <script src="js/benford_ui.js"></script>
+    <script src="js/bigfive.js"></script>
+    <script src="js/bigfive_ui.js"></script>
+    <script src="js/app.js"></script>
 </body>
 </html>
