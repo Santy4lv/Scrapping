@@ -72,6 +72,7 @@ function showDashboard() {
     renderUsers('followers');
     renderUsers('following');
     if (typeof renderBenfordTab === 'function') renderBenfordTab();
+    if (typeof renderBigFiveTab === 'function') renderBigFiveTab();
     setupSearch();
     setupTabs();
 }
@@ -363,6 +364,9 @@ function switchTab(tabName) {
     panel.classList.add('active');
     if (tabName === 'benford' && typeof onBenfordTabShown === 'function') {
         onBenfordTabShown();
+    }
+    if (tabName === 'bigfive' && typeof onBigFiveTabShown === 'function') {
+        onBigFiveTabShown();
     }
     try {
         localStorage.setItem(STORAGE_KEY_ACTIVE_TAB, tabName);
